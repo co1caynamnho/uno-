@@ -40,6 +40,9 @@ interface ServerRoom {
   turnTimeout?: NodeJS.Timeout;
 }
 
+// Map to track pending UNO penalty timers for players who just dropped to 1 card
+const unoPendingTimers = new Map<string, NodeJS.Timeout>();
+
 const colors: CardColor[] = ['red', 'yellow', 'green', 'blue'];
 const values: CardValue[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'SKIP', 'REV', '+2'];
 
@@ -758,14 +761,25 @@ async function startServer() {
         addRoomLog(room, activePlayer.id, `Đánh lá ${card.value} ${getColorNameVietnamese(card.color)}`, 'play', card);
       }
 
-      // Check UNO Penalty if player forgot to call UNO before dropping to 1 card
+      // Check UNO Penalty: when player drops to 1 card, they must call UNO immediately
       if (activePlayer.hand.length === 1 && !activePlayer.hasCalledUno && room.settings.enableUnoPenalty) {
-        setTimeout(() => {
-          drawCardsForPlayer(room, activePlayer, 2);
-          room.lastActionAnnouncement = `⚠️ ${activePlayer.name} quên hô UNO và bị phạt bốc 2 lá!`;
-          addRoomLog(room, activePlayer.id, `Quên hô UNO và bị phạt bốc 2 lá!`, 'penalty');
-          broadcastRoomUpdate(room);
-        }, 400);
+        const timeoutKey = `${room.roomId}_${activePlayer.id}`;
+        if (unoPendingTimers.has(timeoutKey)) {
+          clearTimeout(unoPendingTimers.get(timeoutKey)!);
+        }
+
+        const timer = setTimeout(() => {
+          unoPendingTimers.delete(timeoutKey);
+          const targetPlayer = room.players.find(p => p.id === activePlayer.id);
+          if (targetPlayer && targetPlayer.hand.length === 1 && !targetPlayer.hasCalledUno && room.status === 'playing') {
+            drawCardsForPlayer(room, targetPlayer, 2);
+            room.lastActionAnnouncement = `⚠️ ${targetPlayer.name} quên hô UNO sau khi đánh bài và bị phạt bốc 2 lá!`;
+            addRoomLog(room, targetPlayer.id, `Không kịp hô UNO sau khi đánh bài, bị phạt bốc 2 lá!`, 'penalty');
+            broadcastRoomUpdate(room);
+          }
+        }, 3500);
+
+        unoPendingTimers.set(timeoutKey, timer);
       }
 
       if (activePlayer.hand.length > 1) {
@@ -835,6 +849,13 @@ async function startServer() {
 
       const player = room.players.find(p => p.socketId === socket.id);
       if (player && player.hand.length <= 2) {
+        // Clear any pending timeout penalty for this player
+        const timeoutKey = `${room.roomId}_${player.id}`;
+        if (unoPendingTimers.has(timeoutKey)) {
+          clearTimeout(unoPendingTimers.get(timeoutKey)!);
+          unoPendingTimers.delete(timeoutKey);
+        }
+
         player.hasCalledUno = true;
         room.lastActionAnnouncement = `🔥 ${player.name.toUpperCase()} ĐÃ HÔ UNO! 🔥`;
         addRoomLog(room, player.id, `Đã hô UNO! 🔥`, 'uno');
@@ -853,6 +874,13 @@ async function startServer() {
       const target = room.players.find(p => p.id === targetPlayerId);
 
       if (target && target.hand.length === 1 && !target.hasCalledUno) {
+        // Clear any automated timer to avoid duplicate penalty
+        const timeoutKey = `${room.roomId}_${target.id}`;
+        if (unoPendingTimers.has(timeoutKey)) {
+          clearTimeout(unoPendingTimers.get(timeoutKey)!);
+          unoPendingTimers.delete(timeoutKey);
+        }
+
         drawCardsForPlayer(room, target, 2);
         room.lastActionAnnouncement = `⚠️ ${catcher?.name} đã bắt quả tang ${target.name} quên hô UNO! (${target.name} +2 lá)`;
         addRoomLog(room, target.id, `Bị ${catcher?.name} bắt phạt bốc 2 lá vì quên hô UNO!`, 'penalty');

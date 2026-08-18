@@ -384,6 +384,16 @@ export default function App() {
                   {topOpponent.isHost && (
                     <Crown className="w-3 h-3 text-amber-400 fill-current ml-1" title="Chủ phòng" />
                   )}
+                  {/* Catch UNO button if opponent forgot to call UNO on 1 card */}
+                  {currentRoom.status === 'playing' && topOpponent.rank === undefined && topOpponent.handCount === 1 && !topOpponent.hasCalledUno && (
+                    <button
+                      onClick={() => catchUnoPenalty(topOpponent.id)}
+                      className="text-[9px] font-black bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white px-2 py-0.5 rounded-full shadow-md animate-bounce ring-1 ring-red-300 ml-1 flex items-center gap-0.5 cursor-pointer"
+                      title="Bắt quả tang quên hô UNO (+2 lá)"
+                    >
+                      <AlertCircle className="w-2.5 h-2.5" /> Bắt UNO (+2)
+                    </button>
+                  )}
                 </div>
 
                 {/* Opponent Card Backs - Evenly Layered & Directed to Center */}
@@ -443,6 +453,16 @@ export default function App() {
                   {leftOpponent.isHost && (
                     <Crown className="w-3 h-3 text-amber-400 fill-current ml-1" title="Chủ phòng" />
                   )}
+                  {/* Catch UNO button for left opponent */}
+                  {currentRoom.status === 'playing' && leftOpponent.rank === undefined && leftOpponent.handCount === 1 && !leftOpponent.hasCalledUno && (
+                    <button
+                      onClick={() => catchUnoPenalty(leftOpponent.id)}
+                      className="text-[8px] font-black bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white px-1.5 py-0.2 rounded-full shadow-md animate-bounce ring-1 ring-red-300 ml-1 flex items-center gap-0.5 cursor-pointer"
+                      title="Bắt phạt quên hô UNO (+2 lá)"
+                    >
+                      <AlertCircle className="w-2 h-2" /> Bắt UNO
+                    </button>
+                  )}
                 </div>
 
                 {currentRoom.status === 'playing' && leftOpponent.rank === undefined && (
@@ -497,6 +517,16 @@ export default function App() {
                   )}
                   {rightOpponent.isHost && (
                     <Crown className="w-3 h-3 text-amber-400 fill-current ml-1" title="Chủ phòng" />
+                  )}
+                  {/* Catch UNO button for right opponent */}
+                  {currentRoom.status === 'playing' && rightOpponent.rank === undefined && rightOpponent.handCount === 1 && !rightOpponent.hasCalledUno && (
+                    <button
+                      onClick={() => catchUnoPenalty(rightOpponent.id)}
+                      className="text-[8px] font-black bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white px-1.5 py-0.2 rounded-full shadow-md animate-bounce ring-1 ring-red-300 ml-1 flex items-center gap-0.5 cursor-pointer"
+                      title="Bắt phạt quên hô UNO (+2 lá)"
+                    >
+                      <AlertCircle className="w-2 h-2" /> Bắt UNO
+                    </button>
                   )}
                 </div>
 
