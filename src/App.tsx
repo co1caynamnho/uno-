@@ -4,6 +4,7 @@ import { useSocketGame } from './hooks/useSocketGame';
 import { sound } from './utils/audio';
 import { UnoCard } from './components/UnoCard';
 import { LobbyView } from './components/LobbyView';
+import { LandscapeGuard } from './components/LandscapeGuard';
 import { ColorPickerModal } from './components/ColorPickerModal';
 import { GameOverModal } from './components/GameOverModal';
 import { RuleGuideModal } from './components/RuleGuideModal';
@@ -27,6 +28,7 @@ import {
   AlertCircle,
   Play,
   Users,
+  Bot,
 } from 'lucide-react';
 
 export default function App() {
@@ -120,6 +122,24 @@ export default function App() {
     setChatInput('');
   };
 
+  // Helper to check if a player is AI / Bot replacement
+  const isBot = (player: Player) => {
+    return (
+      player.isBotReplacement ||
+      player.socketId.startsWith('ai_') ||
+      player.name.includes('(Bot đang đánh)') ||
+      player.name.includes('(AI)')
+    );
+  };
+
+  // Helper to extract clean name without bot tags
+  const getDisplayName = (player: Player) => {
+    return player.name
+      .replace(/\s*\(Bot đang đánh\)/gi, '')
+      .replace(/\s*\(AI\)/gi, '')
+      .trim();
+  };
+
   // Helper to render rank badge for finished players
   const renderRankBadge = (rank?: number) => {
     if (!rank) return null;
@@ -129,14 +149,25 @@ export default function App() {
     return <span className="text-[10px] font-bold bg-slate-700 text-slate-200 px-1.5 py-0.5 rounded-full shadow">🎖️ Hạng {rank}</span>;
   };
 
-  // Helper to render an avatar nicely
+  // Helper to render an avatar nicely with Bot status
   const renderAvatar = (player: Player, isActive: boolean) => {
+    const isBotPlayer = isBot(player);
     return (
-      <div className={`avatar-container ${isActive && player.rank === undefined ? 'ring-2 ring-[#32ff7e]' : ''}`}>
+      <div className={`avatar-container relative ${isActive && player.rank === undefined ? 'ring-2 ring-[#32ff7e]' : ''}`}>
         {player.avatar ? (
           <img src={player.avatar} alt={player.name} className="avatar-img" />
+        ) : isBotPlayer ? (
+          <Bot className="avatar-default-icon text-cyan-400" />
         ) : (
           <User className="avatar-default-icon" />
+        )}
+        {isBotPlayer && (
+          <div
+            className="absolute -bottom-1 -right-1 bg-cyan-500 text-slate-950 p-0.5 rounded-full ring-1 ring-slate-900 shadow"
+            title="Bot đang đánh thay"
+          >
+            <Bot className="w-2.5 h-2.5" />
+          </div>
         )}
       </div>
     );
@@ -146,6 +177,7 @@ export default function App() {
   if (!currentRoom || localPlayerId === null || !localPlayer) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-between p-2 sm:p-4 text-white font-sans overflow-x-hidden">
+        <LandscapeGuard />
         <h1 className="m-0 font-black tracking-widest text-center mt-2 text-3xl sm:text-4xl text-white drop-shadow-md">
           UNO
         </h1>
@@ -208,6 +240,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-between p-2 sm:p-4 text-white font-sans overflow-x-hidden">
+      <LandscapeGuard />
       {/* UNO Broadcast Toast */}
       {unoAnnouncement && (
         <div className="fixed top-12 z-50 px-6 py-3 bg-gradient-to-r from-red-600 via-amber-500 to-yellow-400 text-slate-950 font-black text-sm sm:text-base rounded-full shadow-2xl flex items-center gap-2 animate-bounce ring-4 ring-white/40">
@@ -336,7 +369,14 @@ export default function App() {
                   }`}
                 >
                   {renderAvatar(topOpponent, topOpponent.id === activePlayer?.id)}
-                  <span className="player-name max-w-[100px] truncate">{topOpponent.name}</span>
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="player-name max-w-[100px] truncate">{getDisplayName(topOpponent)}</span>
+                    {isBot(topOpponent) && (
+                      <span className="text-[9px] font-black bg-cyan-950/90 text-cyan-300 border border-cyan-400/50 px-1.5 py-0.2 rounded-full flex items-center gap-0.5 shadow-sm mt-0.5 animate-pulse">
+                        <Bot className="w-2.5 h-2.5 text-cyan-400" /> Bot đang đánh
+                      </span>
+                    )}
+                  </div>
                   {renderRankBadge(topOpponent.rank)}
                   {currentRoom.status === 'playing' && topOpponent.rank === undefined && (
                     <span className="card-count-badge">{topOpponent.handCount}</span>
@@ -346,7 +386,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Opponent Card Backs - Evenly Layered */}
+                {/* Opponent Card Backs - Evenly Layered & Directed to Center */}
                 {currentRoom.status === 'playing' && topOpponent.rank === undefined && (
                   <div className="hand-container flex items-center justify-center">
                     {Array.from({ length: Math.min(topOpponent.handCount, 8) }).map((_, idx) => (
@@ -354,8 +394,10 @@ export default function App() {
                         key={idx}
                         style={{
                           zIndex: 30 - idx,
-                          marginLeft: idx === 0 ? '0px' : '-20px',
+                          marginLeft: idx === 0 ? '0px' : '-8px',
                         }}
+                        className="rotate-180 transition-transform origin-center"
+                        title="Bài đối thủ trên"
                       >
                         <UnoCard isBack size="sm" />
                       </div>
@@ -386,7 +428,14 @@ export default function App() {
                   }`}
                 >
                   {renderAvatar(leftOpponent, leftOpponent.id === activePlayer?.id)}
-                  <span className="player-name max-w-[80px] truncate">{leftOpponent.name}</span>
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="player-name max-w-[80px] truncate">{getDisplayName(leftOpponent)}</span>
+                    {isBot(leftOpponent) && (
+                      <span className="text-[8px] font-black bg-cyan-950/90 text-cyan-300 border border-cyan-400/50 px-1 py-0.2 rounded-full flex items-center gap-0.5 shadow-sm mt-0.5 animate-pulse">
+                        <Bot className="w-2 h-2 text-cyan-400" /> Bot đang đánh
+                      </span>
+                    )}
+                  </div>
                   {renderRankBadge(leftOpponent.rank)}
                   {currentRoom.status === 'playing' && leftOpponent.rank === undefined && (
                     <span className="card-count-badge">{leftOpponent.handCount}</span>
@@ -397,12 +446,20 @@ export default function App() {
                 </div>
 
                 {currentRoom.status === 'playing' && leftOpponent.rank === undefined && (
-                  <div className="flex flex-col items-center -space-y-12">
+                  <div className="flex flex-col items-center justify-center -space-y-6 pt-1">
                     {Array.from({ length: Math.min(leftOpponent.handCount, 6) }).map((_, idx) => (
-                      <div key={idx} className="rotate-90">
+                      <div
+                        key={idx}
+                        style={{ zIndex: 20 - idx }}
+                        className="rotate-90 transition-transform origin-center"
+                        title="Bài đối thủ bên trái"
+                      >
                         <UnoCard isBack size="sm" />
                       </div>
                     ))}
+                    {leftOpponent.handCount > 6 && (
+                      <span className="text-[10px] text-amber-300 font-bold pt-1">+{leftOpponent.handCount - 6}</span>
+                    )}
                   </div>
                 )}
               </div>
@@ -426,7 +483,14 @@ export default function App() {
                   }`}
                 >
                   {renderAvatar(rightOpponent, rightOpponent.id === activePlayer?.id)}
-                  <span className="player-name max-w-[80px] truncate">{rightOpponent.name}</span>
+                  <div className="flex flex-col items-start leading-tight">
+                    <span className="player-name max-w-[80px] truncate">{getDisplayName(rightOpponent)}</span>
+                    {isBot(rightOpponent) && (
+                      <span className="text-[8px] font-black bg-cyan-950/90 text-cyan-300 border border-cyan-400/50 px-1 py-0.2 rounded-full flex items-center gap-0.5 shadow-sm mt-0.5 animate-pulse">
+                        <Bot className="w-2 h-2 text-cyan-400" /> Bot đang đánh
+                      </span>
+                    )}
+                  </div>
                   {renderRankBadge(rightOpponent.rank)}
                   {currentRoom.status === 'playing' && rightOpponent.rank === undefined && (
                     <span className="card-count-badge">{rightOpponent.handCount}</span>
@@ -437,12 +501,20 @@ export default function App() {
                 </div>
 
                 {currentRoom.status === 'playing' && rightOpponent.rank === undefined && (
-                  <div className="flex flex-col items-center -space-y-12">
+                  <div className="flex flex-col items-center justify-center -space-y-6 pt-1">
                     {Array.from({ length: Math.min(rightOpponent.handCount, 6) }).map((_, idx) => (
-                      <div key={idx} className="-rotate-90">
+                      <div
+                        key={idx}
+                        style={{ zIndex: 20 - idx }}
+                        className="-rotate-90 transition-transform origin-center"
+                        title="Bài đối thủ bên phải"
+                      >
                         <UnoCard isBack size="sm" />
                       </div>
                     ))}
+                    {rightOpponent.handCount > 6 && (
+                      <span className="text-[10px] text-amber-300 font-bold pt-1">+{rightOpponent.handCount - 6}</span>
+                    )}
                   </div>
                 )}
               </div>
@@ -615,14 +687,26 @@ export default function App() {
                   ) : (
                     localPlayer.hand.map((card, idx) => {
                       const playable = isLocalTurn && isValidCardPlay(card, currentRoom.currentCard, currentRoom.currentColor);
+                      const totalCards = localPlayer.hand.length;
+                      // Dynamic comfortable spacing: nicely separated when <= 6 cards, slight neat overlap when more cards
+                      const dynamicMargin = idx === 0 
+                        ? '0px' 
+                        : totalCards <= 5 
+                        ? '10px' 
+                        : totalCards <= 8 
+                        ? '4px' 
+                        : totalCards <= 12 
+                        ? '-6px' 
+                        : '-12px';
+
                       return (
                         <div
                           key={card.id}
                           style={{
                             zIndex: localPlayer.hand.length - idx,
-                            marginLeft: idx === 0 ? '0px' : undefined,
+                            marginLeft: dynamicMargin,
                           }}
-                          className="relative transition-all duration-200 hover:!z-50"
+                          className="relative transition-all duration-200 hover:!z-50 shrink-0 cursor-pointer"
                         >
                           <UnoCard
                             card={card}

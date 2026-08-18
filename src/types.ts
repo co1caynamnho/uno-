@@ -26,6 +26,7 @@ export interface Player {
   cardsPlayed: number;
   rank?: number; // 1 = First place, 2 = Second, 3 = Third, 4 = Fourth
   roundScore?: number; // Points earned in the latest round
+  isBotReplacement?: boolean; // When human player leaves and bot takes over
 }
 
 export interface PlayerRanking {

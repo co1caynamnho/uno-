@@ -970,9 +970,9 @@ async function startServer() {
         if (remainingRealPlayers.length > 0) {
           // Switch this player to AI Takeover
           leavingPlayer.socketId = `ai_takeover_${leavingPlayer.id}`;
-          if (!leavingPlayer.name.includes('(AI)')) {
-            leavingPlayer.name = `${leavingPlayer.name} (AI)`;
-          }
+          leavingPlayer.isBotReplacement = true;
+          const cleanName = leavingPlayer.name.replace(/\s*\(Bot đang đánh\)/gi, '').replace(/\s*\(AI\)/gi, '');
+          leavingPlayer.name = `${cleanName} (Bot đang đánh)`;
 
           if (wasHost) {
             leavingPlayer.isHost = false;
@@ -981,8 +981,8 @@ async function startServer() {
             room.hostId = remainingRealPlayers[0].id;
           }
 
-          addRoomLog(room, leavingPlayer.id, `${leavingPlayer.name} đã thoát, AI sẽ tự động đánh thay!`, 'system');
-          room.lastActionAnnouncement = `${leavingPlayer.name} đã thoát, AI sẽ tự động đánh thay!`;
+          addRoomLog(room, leavingPlayer.id, `${cleanName} đã thoát, Bot đang đánh thay!`, 'system');
+          room.lastActionAnnouncement = `${cleanName} đã thoát bàn, Bot đang đánh thay!`;
 
           broadcastRoomUpdate(room);
           broadcastRoomsList();
