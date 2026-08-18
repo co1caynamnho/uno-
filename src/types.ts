@@ -24,6 +24,19 @@ export interface Player {
   isConnected: boolean;
   score: number;
   cardsPlayed: number;
+  rank?: number; // 1 = First place, 2 = Second, 3 = Third, 4 = Fourth
+  roundScore?: number; // Points earned in the latest round
+}
+
+export interface PlayerRanking {
+  playerId: number;
+  playerName: string;
+  avatar: string | null;
+  rank: number;
+  scoreEarned: number;
+  totalScore: number;
+  cardsPlayed: number;
+  isAi: boolean;
 }
 
 export interface GameLog {
@@ -53,6 +66,7 @@ export interface GameSettings {
   turnDuration: number; // in seconds, e.g. 20
   enableUnoPenalty: boolean; // must press UNO before next turn or get +2
   stackingDrawTwo: boolean; // allow stacking +2 on +2
+  drawUntilPlayable?: boolean; // Luật Rừng: Bốc đến khi nào có lá bài đánh được
   soundEnabled: boolean;
 }
 
@@ -82,6 +96,7 @@ export interface RoomState {
   settings: GameSettings;
   logs: GameLog[];
   winner: Player | null;
+  rankings?: PlayerRanking[];
   chatMessages: ChatMessage[];
   lastActionAnnouncement?: string;
 }

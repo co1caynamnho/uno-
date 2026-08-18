@@ -15,7 +15,7 @@
 
 body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: radial-gradient(circle at center, #252836 0%, #0d0e15 100%);
+  background: radial-gradient(circle at center, #1e2230 0%, #0c0e14 100%);
   color: #fff;
   margin: 0;
   padding: 0;
@@ -45,6 +45,8 @@ h1 {
   display: flex;
   gap: 15px;
   color: #18dcff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
 }
 
 /* BÀN CHƠI DẠNG THẢM TÂM */
@@ -53,11 +55,11 @@ h1 {
   width: 100%;
   max-width: 950px;
   height: 630px;
-  background: rgba(30, 33, 48, 0.6);
+  background: rgba(25, 28, 42, 0.7);
   border-radius: 24px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 0 30px rgba(125, 95, 255, 0.2), inset 0 0 40px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(10px);
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 40px rgba(125, 95, 255, 0.18), inset 0 0 50px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -68,9 +70,9 @@ h1 {
   position: absolute;
   width: 320px;
   height: 200px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01));
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
   border-radius: 16px;
-  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border: 2px dashed rgba(255, 255, 255, 0.22);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -230,4 +232,18 @@ h1 {
 
 .glow-active {
   animation: pulse-glow 2s infinite ease-in-out;
+}
+
+/* Subtle Backrooms ambient flicker */
+@keyframes fluorescent-flicker {
+  0%, 100% { opacity: 0.98; }
+  92% { opacity: 0.98; }
+  93% { opacity: 0.85; }
+  94% { opacity: 0.98; }
+  96% { opacity: 0.9; }
+  97% { opacity: 0.98; }
+}
+
+.backrooms-ambient {
+  animation: fluorescent-flicker 8s infinite;
 }

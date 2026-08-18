@@ -11,6 +11,7 @@ import {
   GameLog,
   GameSettings,
   Player,
+  PlayerRanking,
   RoomState,
   RoomSummary,
 } from './src/types';
@@ -33,6 +34,7 @@ interface ServerRoom {
   settings: GameSettings;
   logs: GameLog[];
   winner: Player | null;
+  rankings?: PlayerRanking[];
   chatMessages: ChatMessage[];
   lastActionAnnouncement?: string;
   turnTimeout?: NodeJS.Timeout;
@@ -111,6 +113,8 @@ async function startServer() {
       isConnected: p.isConnected,
       score: p.score,
       cardsPlayed: p.cardsPlayed,
+      rank: p.rank,
+      roundScore: p.roundScore,
     }));
 
     return {
@@ -129,6 +133,7 @@ async function startServer() {
       settings: room.settings,
       logs: room.logs,
       winner: room.winner,
+      rankings: room.rankings,
       chatMessages: room.chatMessages,
       lastActionAnnouncement: room.lastActionAnnouncement,
     };
@@ -179,11 +184,84 @@ async function startServer() {
   }
 
   function getNextPlayerIndex(room: ServerRoom, steps: number = 1): number {
-    const activePlayers = room.players.filter(p => p.isConnected);
+    const activePlayers = room.players.filter(p => p.isConnected && p.rank === undefined && p.hand.length > 0);
     if (activePlayers.length === 0) return 0;
-    let next = (room.currentTurnIndex + room.playDirection * steps) % room.players.length;
-    while (next < 0) next += room.players.length;
+
+    let next = room.currentTurnIndex;
+    let stepsLeft = steps;
+    let attempts = 0;
+
+    while (stepsLeft > 0 && attempts < room.players.length * 3) {
+      next = (next + room.playDirection) % room.players.length;
+      while (next < 0) next += room.players.length;
+      attempts++;
+      const candidate = room.players[next];
+      if (candidate && candidate.isConnected && candidate.rank === undefined && candidate.hand.length > 0) {
+        stepsLeft--;
+      }
+    }
+
     return next;
+  }
+
+  function handlePlayerFinishedHand(room: ServerRoom, player: Player, skipTurn: boolean, nextIdx: number) {
+    if (player.rank !== undefined) return;
+
+    const finishedCount = room.players.filter(p => p.rank !== undefined).length;
+    const assignedRank = finishedCount + 1;
+    player.rank = assignedRank;
+
+    if (assignedRank === 1) {
+      room.winner = player;
+      addRoomLog(room, player.id, `Đã đánh hết bài và giành Hạng 1 (Quán Quân)! 🥇`, 'win');
+    } else {
+      const medal = assignedRank === 2 ? '🥈' : assignedRank === 3 ? '🥉' : '🎖️';
+      addRoomLog(room, player.id, `Đã đánh hết bài và giành Hạng ${assignedRank}! ${medal}`, 'win');
+    }
+
+    const remainingActive = room.players.filter(p => p.isConnected && p.rank === undefined && p.hand.length > 0);
+
+    if (remainingActive.length <= 1) {
+      if (remainingActive.length === 1) {
+        remainingActive[0].rank = room.players.length;
+        addRoomLog(room, remainingActive[0].id, `Về đích cuối cùng (Hạng ${room.players.length})`, 'system');
+      }
+
+      // Finalize match & calculate score points
+      room.status = 'ended';
+
+      const rankPoints: Record<number, number> = {
+        1: 300,
+        2: 150,
+        3: 75,
+        4: 25,
+      };
+
+      room.players.forEach(p => {
+        const r = p.rank || room.players.length;
+        const pts = rankPoints[r] || 25;
+        p.roundScore = pts;
+        p.score = (p.score || 0) + pts;
+      });
+
+      room.rankings = room.players
+        .map(p => ({
+          playerId: p.id,
+          playerName: p.name,
+          avatar: p.avatar,
+          rank: p.rank || room.players.length,
+          scoreEarned: p.roundScore || 0,
+          totalScore: p.score || 0,
+          cardsPlayed: p.cardsPlayed || 0,
+          isAi: p.socketId.startsWith('ai_'),
+        }))
+        .sort((a, b) => a.rank - b.rank);
+
+      room.lastActionAnnouncement = `🎉 Trận đấu hoàn tất! Hãy xem bảng xếp hạng tổng kết.`;
+    } else {
+      room.lastActionAnnouncement = `🎉 ${player.name} đã về đích Hạng ${assignedRank}! ${remainingActive.length} người chơi còn lại tiếp tục đấu...`;
+      room.currentTurnIndex = skipTurn ? getNextPlayerIndex(room, 2) : nextIdx;
+    }
   }
 
   function drawCardsForPlayer(room: ServerRoom, player: Player, count: number) {
@@ -201,15 +279,15 @@ async function startServer() {
     }
   }
 
-  function checkBotTurn(room: ServerRoom) {
+  function executeAiMove(room: ServerRoom) {
     if (room.status !== 'playing') return;
     const activePlayer = room.players[room.currentTurnIndex];
-    if (!activePlayer || !activePlayer.socketId.startsWith('bot_')) return;
+    if (!activePlayer || !activePlayer.socketId.startsWith('ai_') || activePlayer.rank !== undefined) return;
 
     setTimeout(() => {
       if (room.status !== 'playing') return;
       const currentActive = room.players[room.currentTurnIndex];
-      if (!currentActive || currentActive.id !== activePlayer.id) return;
+      if (!currentActive || currentActive.id !== activePlayer.id || !currentActive.socketId.startsWith('ai_') || currentActive.rank !== undefined) return;
 
       // Find playable cards
       const playableCards = currentActive.hand.filter(
@@ -217,6 +295,7 @@ async function startServer() {
       );
 
       if (playableCards.length > 0) {
+        // AI chooses playable card
         const chosenCard = playableCards[0];
         const cardIdx = currentActive.hand.findIndex(c => c.id === chosenCard.id);
         currentActive.hand.splice(cardIdx, 1);
@@ -252,13 +331,13 @@ async function startServer() {
         if (chosenCard.value === '+4') {
           const nextPlayer = room.players[nextIdx];
           drawCardsForPlayer(room, nextPlayer, 4);
-          room.lastActionAnnouncement = `${currentActive.name} đánh +4! ${nextPlayer.name} bị bốc 4 lá.`;
+          room.lastActionAnnouncement = `${currentActive.name} đánh +4! ${nextPlayer.name} bị bốc 4 lá và mất lượt.`;
           addRoomLog(room, currentActive.id, `Đánh +4 và chọn màu ${getColorNameVietnamese(chosenColor)}! ${nextPlayer.name} bị bốc 4 lá!`, 'play', chosenCard);
           skipTurn = true;
         } else if (chosenCard.value === '+2') {
           const nextPlayer = room.players[nextIdx];
           drawCardsForPlayer(room, nextPlayer, 2);
-          room.lastActionAnnouncement = `${currentActive.name} đánh +2! ${nextPlayer.name} bị bốc 2 lá.`;
+          room.lastActionAnnouncement = `${currentActive.name} đánh +2! ${nextPlayer.name} bị bốc 2 lá và mất lượt.`;
           addRoomLog(room, currentActive.id, `Đánh +2! ${nextPlayer.name} bị bốc 2 lá!`, 'play', chosenCard);
           skipTurn = true;
         } else if (chosenCard.value === 'SKIP') {
@@ -281,52 +360,107 @@ async function startServer() {
         }
 
         if (currentActive.hand.length === 0) {
-          room.status = 'ended';
-          room.winner = currentActive;
-          room.lastActionAnnouncement = `🎉 CHÚC MỪNG ${currentActive.name.toUpperCase()} ĐÃ CHIẾN THẮNG! 🎉`;
-          addRoomLog(room, currentActive.id, `Đã đánh hết bài và chiến thắng! 🏆`, 'win');
+          handlePlayerFinishedHand(room, currentActive, skipTurn, nextIdx);
         } else {
           room.currentTurnIndex = skipTurn ? getNextPlayerIndex(room, 2) : nextIdx;
         }
 
         broadcastRoomUpdate(room);
-        checkBotTurn(room);
-      } else {
-        // Draw 1 card
-        drawCardsForPlayer(room, currentActive, 1);
-        const drawnCard = currentActive.hand[currentActive.hand.length - 1];
-        const isDrawnPlayable =
-          drawnCard &&
-          (drawnCard.color === 'wild' ||
-            drawnCard.color === room.currentColor ||
-            drawnCard.value === room.currentCard?.value);
-
-        if (isDrawnPlayable) {
-          currentActive.hand.pop();
-          currentActive.cardsPlayed++;
-          let chosenColor: CardColor = drawnCard.color === 'wild' ? 'red' : drawnCard.color;
-
-          const playedCard: Card = {
-            ...drawnCard,
-            selectedColor: chosenColor,
-          };
-          room.currentCard = playedCard;
-          room.currentColor = chosenColor;
-          room.discardPile.push(playedCard);
-
-          room.lastActionAnnouncement = `${currentActive.name} bốc được lá hợp lệ và đánh luôn!`;
-          addRoomLog(room, currentActive.id, `Bốc và đánh lá ${drawnCard.value}`, 'play', drawnCard);
-          room.currentTurnIndex = getNextPlayerIndex(room, 1);
-        } else {
-          room.lastActionAnnouncement = `${currentActive.name} đã bốc 1 lá bài.`;
-          addRoomLog(room, currentActive.id, `Đã rút 1 lá bài.`, 'draw');
-          room.currentTurnIndex = getNextPlayerIndex(room, 1);
+        if (room.status === 'playing') {
+          executeAiMove(room);
         }
+      } else {
+        // AI has no playable card in current hand
+        if (room.settings.drawUntilPlayable) {
+          // Luật Rừng: AI bốc liên tục đến khi nào có lá bài đánh được
+          const drawStep = (attempt: number) => {
+            if (room.status !== 'playing') return;
+            const currentAi = room.players[room.currentTurnIndex];
+            if (!currentAi || currentAi.id !== activePlayer.id || !currentAi.socketId.startsWith('ai_') || currentAi.rank !== undefined) return;
 
-        broadcastRoomUpdate(room);
-        checkBotTurn(room);
+            drawCardsForPlayer(room, currentAi, 1);
+            const drawn = currentAi.hand[currentAi.hand.length - 1];
+            const isPlayable = drawn && (
+              drawn.color === 'wild' ||
+              drawn.color === room.currentColor ||
+              drawn.value === room.currentCard?.value
+            );
+
+            if (isPlayable) {
+              room.lastActionAnnouncement = `${currentAi.name} bốc được lá hợp lệ sau ${attempt} lần bốc [Luật Rừng]!`;
+              addRoomLog(room, currentAi.id, `Đã bốc được lá bài hợp lệ sau ${attempt} lần bốc (Luật Rừng)!`, 'draw');
+              broadcastRoomUpdate(room);
+
+              // Delay slightly then play the card
+              setTimeout(() => {
+                executeAiMove(room);
+              }, 600);
+            } else if (attempt < 15) {
+              room.lastActionAnnouncement = `${currentAi.name} bốc 1 lá (chưa có bài đánh, tiếp tục bốc...) [Luật Rừng]`;
+              addRoomLog(room, currentAi.id, `Bốc bài lần ${attempt} chưa có lá đánh được (Luật Rừng).`, 'draw');
+              broadcastRoomUpdate(room);
+              setTimeout(() => drawStep(attempt + 1), 400);
+            } else {
+              // Safety fallback
+              room.lastActionAnnouncement = `${currentAi.name} đã bốc nhiều lá bài.`;
+              room.currentTurnIndex = getNextPlayerIndex(room, 1);
+              broadcastRoomUpdate(room);
+              if (room.status === 'playing') {
+                executeAiMove(room);
+              }
+            }
+          };
+
+          drawStep(1);
+        } else {
+          // Standard rules: Draw 1 card
+          drawCardsForPlayer(room, currentActive, 1);
+          const drawnCard = currentActive.hand[currentActive.hand.length - 1];
+          const isDrawnPlayable =
+            drawnCard &&
+            (drawnCard.color === 'wild' ||
+              drawnCard.color === room.currentColor ||
+              drawnCard.value === room.currentCard?.value);
+
+          if (isDrawnPlayable) {
+            currentActive.hand.pop();
+            currentActive.cardsPlayed++;
+            let chosenColor: CardColor = drawnCard.color === 'wild' ? 'red' : drawnCard.color;
+
+            const playedCard: Card = {
+              ...drawnCard,
+              selectedColor: chosenColor,
+            };
+            room.currentCard = playedCard;
+            room.currentColor = chosenColor;
+            room.discardPile.push(playedCard);
+
+            if (currentActive.hand.length === 1) {
+              currentActive.hasCalledUno = true;
+              io.to(room.roomId).emit('uno_shout_broadcast', { playerName: currentActive.name });
+            }
+
+            room.lastActionAnnouncement = `${currentActive.name} bốc được lá hợp lệ và đánh luôn!`;
+            addRoomLog(room, currentActive.id, `Bốc và đánh lá ${drawnCard.value}`, 'play', drawnCard);
+
+            if (currentActive.hand.length === 0) {
+              handlePlayerFinishedHand(room, currentActive, false, getNextPlayerIndex(room, 1));
+            } else {
+              room.currentTurnIndex = getNextPlayerIndex(room, 1);
+            }
+          } else {
+            room.lastActionAnnouncement = `${currentActive.name} đã bốc 1 lá bài.`;
+            addRoomLog(room, currentActive.id, `Đã rút 1 lá bài.`, 'draw');
+            room.currentTurnIndex = getNextPlayerIndex(room, 1);
+          }
+
+          broadcastRoomUpdate(room);
+          if (room.status === 'playing') {
+            executeAiMove(room);
+          }
+        }
       }
-    }, 900);
+    }, 1000);
   }
 
   // Socket.IO Connection Handler
@@ -389,6 +523,7 @@ async function startServer() {
           turnDuration: settings?.turnDuration || 20,
           enableUnoPenalty: settings?.enableUnoPenalty ?? true,
           stackingDrawTwo: settings?.stackingDrawTwo ?? false,
+          drawUntilPlayable: Boolean(settings?.drawUntilPlayable),
           soundEnabled: true,
         },
         logs: [],
@@ -479,72 +614,20 @@ async function startServer() {
       }
     });
 
-    // Add Bot
-    socket.on('add_bot', () => {
-      if (!currentRoomId) return;
-      const room = rooms.get(currentRoomId);
-      if (!room || room.status !== 'waiting') return;
-      if (room.players.length >= room.maxPlayers) {
-        socket.emit('error_message', 'Phòng đã đủ số người chơi!');
-        return;
-      }
-
-      const existingIds = new Set(room.players.map(p => p.id));
-      let newId = 0;
-      while (existingIds.has(newId)) newId++;
-
-      const botNames = ['Bot Mèo 🐱', 'Bot Gấu 🐻', 'Bot Cáo 🦊', 'Bot Robot 🤖'];
-      const botName = botNames[newId % botNames.length];
-
-      const newBot: Player & { socketId: string } = {
-        id: newId,
-        socketId: `bot_${Date.now()}_${newId}`,
-        name: botName,
-        avatar: null,
-        isReady: true,
-        isHost: false,
-        handCount: 0,
-        hand: [],
-        hasCalledUno: false,
-        isConnected: true,
-        score: 0,
-        cardsPlayed: 0,
-      };
-
-      room.players.push(newBot);
-      addRoomLog(room, newId, `${botName} đã vào phòng`, 'system');
-      room.lastActionAnnouncement = `${botName} đã vào phòng (${room.players.length}/${room.maxPlayers})`;
-      broadcastRoomUpdate(room);
-      broadcastRoomsList();
-    });
-
-    // 4. Start Game (Host only)
+    // 4. Start Game (Host only - requires at least 2 players)
     socket.on('start_game', () => {
       if (!currentRoomId) return;
       const room = rooms.get(currentRoomId);
-      if (!room || room.status !== 'waiting') return;
+      if (!room || (room.status !== 'waiting' && room.status !== 'ended')) return;
       if (room.hostSocketId !== socket.id) {
         socket.emit('error_message', 'Chỉ chủ phòng mới có quyền bắt đầu ván đấu!');
         return;
       }
 
-      // If only 1 player, auto add a bot to play immediately!
+      // Must have at least 2 players to start the game
       if (room.players.length < 2) {
-        const newBot: Player & { socketId: string } = {
-          id: 1,
-          socketId: `bot_${Date.now()}_1`,
-          name: 'Bot Mèo 🐱',
-          avatar: null,
-          isReady: true,
-          isHost: false,
-          handCount: 0,
-          hand: [],
-          hasCalledUno: false,
-          isConnected: true,
-          score: 0,
-          cardsPlayed: 0,
-        };
-        room.players.push(newBot);
+        socket.emit('error_message', 'Cần ít nhất 2 người chơi trong phòng để bắt đầu ván đấu!');
+        return;
       }
 
       // Setup initial game deck
@@ -552,6 +635,7 @@ async function startServer() {
       room.deck = newDeck;
       room.status = 'playing';
       room.winner = null;
+      room.rankings = undefined;
       room.playDirection = 1;
       room.currentTurnIndex = 0;
 
@@ -560,6 +644,9 @@ async function startServer() {
         p.hand = [];
         p.hasCalledUno = false;
         p.isReady = true;
+        p.rank = undefined;
+        p.roundScore = 0;
+        p.cardsPlayed = 0;
         for (let i = 0; i < 7; i++) {
           p.hand.push(room.deck.pop()!);
         }
@@ -574,13 +661,16 @@ async function startServer() {
       room.discardPile = [firstCard];
       room.currentCard = firstCard;
       room.currentColor = firstCard.color;
-      room.lastActionAnnouncement = `Trò chơi bắt đầu! Lượt đầu tiên của ${room.players[0].name}`;
+      room.lastActionAnnouncement = `Ván mới bắt đầu! Lượt đầu tiên của ${room.players[0].name}`;
 
       addRoomLog(room, room.players[0].id, `Bắt đầu ván đấu mới!`, 'system');
       broadcastRoomUpdate(room);
       broadcastRoomsList();
 
-      checkBotTurn(room);
+      // Trigger AI if first player is AI
+      if (room.players[0].socketId.startsWith('ai_')) {
+        executeAiMove(room);
+      }
     });
 
     // 5. Play Card
@@ -682,18 +772,17 @@ async function startServer() {
         activePlayer.hasCalledUno = false;
       }
 
-      // Check Win
+      // Check Finish Hand
       if (activePlayer.hand.length === 0) {
-        room.status = 'ended';
-        room.winner = activePlayer;
-        room.lastActionAnnouncement = `🎉 CHÚC MỪNG ${activePlayer.name.toUpperCase()} ĐÃ CHIẾN THẮNG! 🎉`;
-        addRoomLog(room, activePlayer.id, `Đã đánh hết bài và chiến thắng trò chơi! 🏆`, 'win');
+        handlePlayerFinishedHand(room, activePlayer, skipTurn, nextIdx);
       } else {
         room.currentTurnIndex = skipTurn ? getNextPlayerIndex(room, 2) : nextIdx;
       }
 
       broadcastRoomUpdate(room);
-      checkBotTurn(room);
+      if (room.status === 'playing') {
+        executeAiMove(room);
+      }
     });
 
     // 6. Draw Card
@@ -709,12 +798,33 @@ async function startServer() {
       }
 
       drawCardsForPlayer(room, activePlayer, 1);
-      room.lastActionAnnouncement = `${activePlayer.name} đã bốc 1 lá bài.`;
-      addRoomLog(room, activePlayer.id, `Đã rút 1 lá bài từ chồng bài.`, 'draw');
 
-      room.currentTurnIndex = getNextPlayerIndex(room, 1);
+      if (room.settings.drawUntilPlayable) {
+        // Luật Rừng: Kiểm tra xem người chơi hiện tại đã có lá bài đánh được chưa
+        const hasPlayableCard = activePlayer.hand.some(
+          c => c.color === 'wild' || c.color === room.currentColor || c.value === room.currentCard?.value
+        );
+
+        if (hasPlayableCard) {
+          room.lastActionAnnouncement = `${activePlayer.name} đã bốc được lá bài hợp lệ! (Có thể đánh bài)`;
+          addRoomLog(room, activePlayer.id, `Đã bốc được lá bài hợp lệ (Luật Rừng)!`, 'draw');
+          // Keep turn on activePlayer so they can play their card
+        } else {
+          room.lastActionAnnouncement = `${activePlayer.name} bốc 1 lá (chưa có bài đánh, tiếp tục bốc...) [Luật Rừng]`;
+          addRoomLog(room, activePlayer.id, `Bốc bài nhưng chưa có lá đánh được (Luật Rừng: tiếp tục bốc).`, 'draw');
+          // Keep turn on activePlayer
+        }
+      } else {
+        // Standard rule: draw 1 and pass turn
+        room.lastActionAnnouncement = `${activePlayer.name} đã bốc 1 lá bài.`;
+        addRoomLog(room, activePlayer.id, `Đã rút 1 lá bài từ chồng bài.`, 'draw');
+        room.currentTurnIndex = getNextPlayerIndex(room, 1);
+      }
+
       broadcastRoomUpdate(room);
-      checkBotTurn(room);
+      if (room.status === 'playing') {
+        executeAiMove(room);
+      }
     });
 
     // 7. Shout UNO
@@ -797,103 +907,131 @@ async function startServer() {
         return;
       }
 
-      room.status = 'waiting';
+      // Start new round directly
+      const newDeck = generateDeck();
+      room.deck = newDeck;
+      room.status = 'playing';
       room.winner = null;
+      room.rankings = undefined;
+      room.playDirection = 1;
+      room.currentTurnIndex = 0;
+
+      // Deal 7 cards each
       room.players.forEach(p => {
         p.hand = [];
         p.hasCalledUno = false;
-        p.isReady = p.isHost;
+        p.isReady = true;
+        p.rank = undefined;
+        p.roundScore = 0;
+        p.cardsPlayed = 0;
+        for (let i = 0; i < 7; i++) {
+          p.hand.push(room.deck.pop()!);
+        }
       });
-      room.lastActionAnnouncement = `Chủ phòng đã khởi động lại ván đấu! Vui lòng sẵn sàng.`;
+
+      // Flip first non-wild card
+      let firstCard: Card;
+      do {
+        firstCard = room.deck.pop()!;
+      } while (firstCard.color === 'wild');
+
+      room.discardPile = [firstCard];
+      room.currentCard = firstCard;
+      room.currentColor = firstCard.color;
+      room.lastActionAnnouncement = `Ván mới bắt đầu! Lượt đầu tiên của ${room.players[0].name}`;
+
+      addRoomLog(room, room.players[0].id, `Bắt đầu ván đấu tiếp theo!`, 'system');
       broadcastRoomUpdate(room);
       broadcastRoomsList();
+
+      if (room.players[0].socketId.startsWith('ai_')) {
+        executeAiMove(room);
+      }
     });
 
-    // 12. Leave Room
-    socket.on('leave_room', () => {
+    // Player Exit Logic (AI Replacement on playing status)
+    const handlePlayerExit = (socketId: string) => {
       if (!currentRoomId) return;
       const room = rooms.get(currentRoomId);
       if (!room) return;
 
-      socket.leave(currentRoomId);
-      const playerIndex = room.players.findIndex(p => p.socketId === socket.id);
-      if (playerIndex !== -1) {
-        const wasHost = room.players[playerIndex].socketId === room.hostSocketId;
-        room.players.splice(playerIndex, 1);
+      const playerIndex = room.players.findIndex(p => p.socketId === socketId);
+      if (playerIndex === -1) return;
 
-        if (room.players.length === 0) {
-          if (room.turnTimeout) clearTimeout(room.turnTimeout);
-          rooms.delete(currentRoomId);
-        } else {
+      const leavingPlayer = room.players[playerIndex];
+      const wasHost = leavingPlayer.isHost;
+
+      // If game is in progress, AI takes over to continue match seamlessly!
+      if (room.status === 'playing') {
+        const remainingRealPlayers = room.players.filter(
+          p => !p.socketId.startsWith('ai_') && p.socketId !== socketId
+        );
+
+        if (remainingRealPlayers.length > 0) {
+          // Switch this player to AI Takeover
+          leavingPlayer.socketId = `ai_takeover_${leavingPlayer.id}`;
+          if (!leavingPlayer.name.includes('(AI)')) {
+            leavingPlayer.name = `${leavingPlayer.name} (AI)`;
+          }
+
           if (wasHost) {
-            room.players[0].isHost = true;
-            room.hostSocketId = room.players[0].socketId;
-            room.hostId = room.players[0].id;
+            leavingPlayer.isHost = false;
+            remainingRealPlayers[0].isHost = true;
+            room.hostSocketId = remainingRealPlayers[0].socketId;
+            room.hostId = remainingRealPlayers[0].id;
           }
 
-          if (room.status === 'playing') {
-            if (room.players.length === 1) {
-              room.status = 'ended';
-              room.winner = room.players[0];
-              room.lastActionAnnouncement = `Đối thủ đã thoát. ${room.players[0].name} chiến thắng!`;
-              if (room.turnTimeout) clearTimeout(room.turnTimeout);
-            } else {
-              if (room.currentTurnIndex >= room.players.length) {
-                room.currentTurnIndex = 0;
-              }
-              const active = room.players[room.currentTurnIndex];
-              room.lastActionAnnouncement = `Đến lượt: ${active?.name || '...'}`;
-            }
-          }
+          addRoomLog(room, leavingPlayer.id, `${leavingPlayer.name} đã thoát, AI sẽ tự động đánh thay!`, 'system');
+          room.lastActionAnnouncement = `${leavingPlayer.name} đã thoát, AI sẽ tự động đánh thay!`;
+
           broadcastRoomUpdate(room);
+          broadcastRoomsList();
+
+          // If it was the leaving player's turn, trigger AI move immediately
+          if (room.currentTurnIndex === playerIndex) {
+            executeAiMove(room);
+          }
+          return;
         }
       }
 
+      // If not playing, or no real players left in match, remove player
+      room.players.splice(playerIndex, 1);
+
+      const realPlayersLeft = room.players.filter(p => !p.socketId.startsWith('ai_'));
+      if (room.players.length === 0 || realPlayersLeft.length === 0) {
+        if (room.turnTimeout) clearTimeout(room.turnTimeout);
+        rooms.delete(currentRoomId);
+      } else {
+        if (wasHost) {
+          realPlayersLeft[0].isHost = true;
+          room.hostSocketId = realPlayersLeft[0].socketId;
+          room.hostId = realPlayersLeft[0].id;
+        }
+        if (room.currentTurnIndex >= room.players.length) {
+          room.currentTurnIndex = 0;
+        }
+        broadcastRoomUpdate(room);
+      }
+
+      broadcastRoomsList();
+    };
+
+    // 12. Leave Room
+    socket.on('leave_room', () => {
+      if (!currentRoomId) return;
+      socket.leave(currentRoomId);
+      handlePlayerExit(socket.id);
+
       currentRoomId = null;
       currentUserId = null;
-      broadcastRoomsList();
       socket.emit('left_room_success');
     });
 
     // Handle Disconnect
     socket.on('disconnect', () => {
       if (!currentRoomId) return;
-      const room = rooms.get(currentRoomId);
-      if (!room) return;
-
-      const playerIndex = room.players.findIndex(p => p.socketId === socket.id);
-      if (playerIndex !== -1) {
-        const wasHost = room.players[playerIndex].socketId === room.hostSocketId;
-        room.players.splice(playerIndex, 1);
-
-        if (room.players.length === 0) {
-          if (room.turnTimeout) clearTimeout(room.turnTimeout);
-          rooms.delete(currentRoomId);
-        } else {
-          if (wasHost) {
-            room.players[0].isHost = true;
-            room.hostSocketId = room.players[0].socketId;
-            room.hostId = room.players[0].id;
-          }
-
-          if (room.status === 'playing') {
-            if (room.players.length === 1) {
-              room.status = 'ended';
-              room.winner = room.players[0];
-              room.lastActionAnnouncement = `Đối thủ đã thoát. ${room.players[0].name} chiến thắng!`;
-              if (room.turnTimeout) clearTimeout(room.turnTimeout);
-            } else {
-              if (room.currentTurnIndex >= room.players.length) {
-                room.currentTurnIndex = 0;
-              }
-              const active = room.players[room.currentTurnIndex];
-              room.lastActionAnnouncement = `Đến lượt: ${active?.name || '...'}`;
-            }
-          }
-          broadcastRoomUpdate(room);
-        }
-        broadcastRoomsList();
-      }
+      handlePlayerExit(socket.id);
     });
   });
 

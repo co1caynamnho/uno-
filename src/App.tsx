@@ -23,7 +23,6 @@ import {
   Eye,
   EyeOff,
   User,
-  ArrowUpDown,
   Send,
   AlertCircle,
   Play,
@@ -43,7 +42,6 @@ export default function App() {
   });
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [sortBy, setSortBy] = useState<'default' | 'color' | 'value'>('default');
 
   // Modals & Panels
   const [isRulesOpen, setIsRulesOpen] = useState(false);
@@ -122,10 +120,19 @@ export default function App() {
     setChatInput('');
   };
 
+  // Helper to render rank badge for finished players
+  const renderRankBadge = (rank?: number) => {
+    if (!rank) return null;
+    if (rank === 1) return <span className="text-[10px] font-black bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 px-2 py-0.5 rounded-full shadow">🥇 Hạng 1</span>;
+    if (rank === 2) return <span className="text-[10px] font-black bg-gradient-to-r from-slate-200 to-slate-400 text-slate-950 px-2 py-0.5 rounded-full shadow">🥈 Hạng 2</span>;
+    if (rank === 3) return <span className="text-[10px] font-black bg-gradient-to-r from-amber-700 to-amber-800 text-white px-2 py-0.5 rounded-full shadow">🥉 Hạng 3</span>;
+    return <span className="text-[10px] font-bold bg-slate-700 text-slate-200 px-1.5 py-0.5 rounded-full shadow">🎖️ Hạng {rank}</span>;
+  };
+
   // Helper to render an avatar nicely
   const renderAvatar = (player: Player, isActive: boolean) => {
     return (
-      <div className={`avatar-container ${isActive ? 'ring-2 ring-[#32ff7e]' : ''}`}>
+      <div className={`avatar-container ${isActive && player.rank === undefined ? 'ring-2 ring-[#32ff7e]' : ''}`}>
         {player.avatar ? (
           <img src={player.avatar} alt={player.name} className="avatar-img" />
         ) : (
@@ -199,19 +206,6 @@ export default function App() {
   const leftOpponent = getOpponentAtSlot('left');
   const rightOpponent = getOpponentAtSlot('right');
 
-  // Sorted Local Player Hand
-  const sortedHand = [...localPlayer.hand];
-  if (sortBy === 'color') {
-    const colorOrder: Record<CardColor, number> = { red: 1, yellow: 2, green: 3, blue: 4, wild: 5 };
-    sortedHand.sort((a, b) => {
-      const cDiff = colorOrder[a.color] - colorOrder[b.color];
-      if (cDiff !== 0) return cDiff;
-      return a.value.localeCompare(b.value);
-    });
-  } else if (sortBy === 'value') {
-    sortedHand.sort((a, b) => a.value.localeCompare(b.value));
-  }
-
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-between p-2 sm:p-4 text-white font-sans overflow-x-hidden">
       {/* UNO Broadcast Toast */}
@@ -238,11 +232,16 @@ export default function App() {
       {/* ROOM INFO BADGE */}
       <div
         id="room-info-badge"
-        className="flex items-center gap-4 px-4 py-1.5 rounded-full border border-white/15 bg-white/5 text-xs sm:text-sm text-[#18dcff] shadow-sm mb-2"
+        className="flex items-center gap-3 sm:gap-4 px-4 py-1.5 rounded-full border border-white/15 bg-white/5 text-xs sm:text-sm text-[#18dcff] shadow-sm mb-2 flex-wrap justify-center backdrop-blur-md"
       >
         <span>
           🏠 Phòng: <strong className="text-white">{currentRoom.roomName}</strong> ({currentRoom.players.length}/{currentRoom.maxPlayers} người)
         </span>
+        {currentRoom.settings.drawUntilPlayable && (
+          <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full text-[11px] font-black">
+            🌳 Luật Rừng
+          </span>
+        )}
         {currentRoom.hasPassword && (
           <span className="flex items-center gap-1">
             🔑 Mật khẩu:{' '}
@@ -333,12 +332,13 @@ export default function App() {
               <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={`player-tag ${
-                    topOpponent.id === activePlayer?.id ? 'active' : ''
+                    topOpponent.id === activePlayer?.id && topOpponent.rank === undefined ? 'active' : ''
                   }`}
                 >
                   {renderAvatar(topOpponent, topOpponent.id === activePlayer?.id)}
                   <span className="player-name max-w-[100px] truncate">{topOpponent.name}</span>
-                  {currentRoom.status === 'playing' && (
+                  {renderRankBadge(topOpponent.rank)}
+                  {currentRoom.status === 'playing' && topOpponent.rank === undefined && (
                     <span className="card-count-badge">{topOpponent.handCount}</span>
                   )}
                   {topOpponent.isHost && (
@@ -347,7 +347,7 @@ export default function App() {
                 </div>
 
                 {/* Opponent Card Backs - Evenly Layered */}
-                {currentRoom.status === 'playing' && (
+                {currentRoom.status === 'playing' && topOpponent.rank === undefined && (
                   <div className="hand-container flex items-center justify-center">
                     {Array.from({ length: Math.min(topOpponent.handCount, 8) }).map((_, idx) => (
                       <div
@@ -382,12 +382,13 @@ export default function App() {
               <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={`player-tag ${
-                    leftOpponent.id === activePlayer?.id ? 'active' : ''
+                    leftOpponent.id === activePlayer?.id && leftOpponent.rank === undefined ? 'active' : ''
                   }`}
                 >
                   {renderAvatar(leftOpponent, leftOpponent.id === activePlayer?.id)}
                   <span className="player-name max-w-[80px] truncate">{leftOpponent.name}</span>
-                  {currentRoom.status === 'playing' && (
+                  {renderRankBadge(leftOpponent.rank)}
+                  {currentRoom.status === 'playing' && leftOpponent.rank === undefined && (
                     <span className="card-count-badge">{leftOpponent.handCount}</span>
                   )}
                   {leftOpponent.isHost && (
@@ -395,7 +396,7 @@ export default function App() {
                   )}
                 </div>
 
-                {currentRoom.status === 'playing' && (
+                {currentRoom.status === 'playing' && leftOpponent.rank === undefined && (
                   <div className="flex flex-col items-center -space-y-12">
                     {Array.from({ length: Math.min(leftOpponent.handCount, 6) }).map((_, idx) => (
                       <div key={idx} className="rotate-90">
@@ -421,12 +422,13 @@ export default function App() {
               <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={`player-tag ${
-                    rightOpponent.id === activePlayer?.id ? 'active' : ''
+                    rightOpponent.id === activePlayer?.id && rightOpponent.rank === undefined ? 'active' : ''
                   }`}
                 >
                   {renderAvatar(rightOpponent, rightOpponent.id === activePlayer?.id)}
                   <span className="player-name max-w-[80px] truncate">{rightOpponent.name}</span>
-                  {currentRoom.status === 'playing' && (
+                  {renderRankBadge(rightOpponent.rank)}
+                  {currentRoom.status === 'playing' && rightOpponent.rank === undefined && (
                     <span className="card-count-badge">{rightOpponent.handCount}</span>
                   )}
                   {rightOpponent.isHost && (
@@ -434,7 +436,7 @@ export default function App() {
                   )}
                 </div>
 
-                {currentRoom.status === 'playing' && (
+                {currentRoom.status === 'playing' && rightOpponent.rank === undefined && (
                   <div className="flex flex-col items-center -space-y-12">
                     {Array.from({ length: Math.min(rightOpponent.handCount, 6) }).map((_, idx) => (
                       <div key={idx} className="-rotate-90">
@@ -466,19 +468,39 @@ export default function App() {
 
               {localPlayer.isHost ? (
                 <div className="flex flex-col items-center gap-2 w-full">
-                  <button
-                    onClick={startGame}
-                    className="w-full group bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 px-5 py-3 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 transition-transform active:scale-95 animate-pulse"
-                  >
-                    <Play className="w-5 h-5 fill-current" />
-                    <span>BẮT ĐẦU VÁN ĐẤU</span>
-                  </button>
+                  {currentRoom.players.length >= 2 ? (
+                    <button
+                      onClick={startGame}
+                      className="w-full group bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 px-5 py-3 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 transition-transform active:scale-95 animate-pulse cursor-pointer"
+                    >
+                      <Play className="w-5 h-5 fill-current" />
+                      <span>BẮT ĐẦU VÁN ĐẤU</span>
+                    </button>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1.5 w-full">
+                      <button
+                        onClick={startGame}
+                        className="w-full bg-slate-800 text-slate-400 border border-slate-700 px-4 py-2.5 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-not-allowed opacity-80"
+                        title="Cần ít nhất 2 người chơi để bắt đầu"
+                      >
+                        <Play className="w-4 h-4 opacity-50" />
+                        <span>Cần ít nhất 2 người để bắt đầu</span>
+                      </button>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Đang chờ người chơi khác vào bàn...
+                      </span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-1.5 py-1">
                   <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                    <span>Đã vào bàn • Chờ chủ phòng bắt đầu</span>
+                    <span>
+                      {currentRoom.players.length >= 2
+                        ? 'Đã đủ người • Chờ chủ phòng bắt đầu'
+                        : 'Chờ thêm người chơi vào bàn...'}
+                    </span>
                   </div>
                 </div>
               )}
@@ -495,12 +517,18 @@ export default function App() {
                       ? 'cursor-pointer hover:scale-105 active:scale-95 transition-transform'
                       : 'cursor-not-allowed opacity-85'
                   }`}
-                  title={isLocalTurn ? 'Bấm để bốc bài' : 'Chưa đến lượt của bạn'}
+                  title={
+                    isLocalTurn
+                      ? currentRoom.settings.drawUntilPlayable
+                        ? 'Bấm để bốc bài (Luật Rừng: bốc đến khi có lá đánh được)'
+                        : 'Bấm để bốc bài'
+                      : 'Chưa đến lượt của bạn'
+                  }
                 >
                   <UnoCard isBack size="md" />
                   {isLocalTurn && (
                     <div className="absolute -bottom-2 inset-x-0 mx-auto w-max px-2 py-0.5 bg-[#ffaf40] text-slate-950 text-[10px] font-black rounded-full shadow-md animate-pulse">
-                      Bốc bài
+                      {currentRoom.settings.drawUntilPlayable ? '🌳 Bốc (Luật Rừng)' : 'Bốc bài'}
                     </div>
                   )}
                 </div>
@@ -529,13 +557,6 @@ export default function App() {
             </div>
           )}
 
-          {/* STATUS BAR - Only shown during active playing state */}
-          {currentRoom.status === 'playing' && (
-            <div id="status-bar">
-              {currentRoom.lastActionAnnouncement || `Đến lượt: ${activePlayer?.name || '...'}`}
-            </div>
-          )}
-
           {/* BOTTOM PLAYER SLOT (LOCAL PLAYER) */}
           <div id="slot-bottom" className="player-slot bottom w-full max-w-2xl px-2">
             <div className="flex flex-col items-center w-full gap-1.5">
@@ -543,12 +564,13 @@ export default function App() {
               <div className="flex items-center justify-between w-full px-3 py-1 bg-slate-950/80 rounded-2xl border border-white/10">
                 <div
                   className={`player-tag ${
-                    isLocalTurn ? 'active' : ''
+                    isLocalTurn && localPlayer.rank === undefined ? 'active' : ''
                   }`}
                 >
                   {renderAvatar(localPlayer, isLocalTurn)}
                   <span className="player-name max-w-[120px] truncate">{localPlayer.name}</span>
-                  {currentRoom.status === 'playing' && (
+                  {renderRankBadge(localPlayer.rank)}
+                  {currentRoom.status === 'playing' && localPlayer.rank === undefined && (
                     <span className="card-count-badge">{localPlayer.hand.length} lá</span>
                   )}
                   <span className="text-[10px] font-black bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded ml-1">
@@ -560,69 +582,67 @@ export default function App() {
                 </div>
 
                 {/* Hand Action Controls */}
-                {currentRoom.status === 'playing' && (
+                {currentRoom.status === 'playing' && localPlayer.rank === undefined && localPlayer.hand.length <= 2 && (
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => {
-                        if (sortBy === 'default') setSortBy('color');
-                        else if (sortBy === 'color') setSortBy('value');
-                        else setSortBy('default');
-                      }}
-                      className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold rounded-lg border border-slate-700"
-                      title="Sắp xếp bài"
+                      id="call-uno-button"
+                      onClick={callUno}
+                      className={`flex items-center gap-1 px-3 py-1 font-black text-xs rounded-xl uppercase tracking-wider transition-all active:scale-95 shadow-md ${
+                        localPlayer.hasCalledUno
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-gradient-to-r from-[#ff3838] to-[#ffaf40] text-slate-950 animate-bounce ring-2 ring-yellow-300'
+                      }`}
                     >
-                      <ArrowUpDown className="w-3 h-3 text-[#ffaf40]" />
-                      <span className="hidden sm:inline">Xếp:</span>
-                      <span className="text-[#ffaf40]">
-                        {sortBy === 'default' ? 'Tự nhiên' : sortBy === 'color' ? 'Màu' : 'Số'}
-                      </span>
+                      <Flame className="w-3.5 h-3.5 fill-current" />
+                      {localPlayer.hasCalledUno ? 'ĐÃ HÔ UNO!' : 'HÔ UNO! 🔥'}
                     </button>
-
-                    {/* UNO Shout Button */}
-                    {localPlayer.hand.length <= 2 && (
-                      <button
-                        id="call-uno-button"
-                        onClick={callUno}
-                        className={`flex items-center gap-1 px-3 py-1 font-black text-xs rounded-xl uppercase tracking-wider transition-all active:scale-95 shadow-md ${
-                          localPlayer.hasCalledUno
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-gradient-to-r from-[#ff3838] to-[#ffaf40] text-slate-950 animate-bounce ring-2 ring-yellow-300'
-                        }`}
-                      >
-                        <Flame className="w-3.5 h-3.5 fill-current" />
-                        {localPlayer.hasCalledUno ? 'ĐÃ HÔ UNO!' : 'HÔ UNO! 🔥'}
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
 
-              {/* Hand Cards - Evenly Staggered Stack like reference image */}
+              {/* Hand Cards / Finished Status Banner */}
               <div className="hand-container w-full overflow-x-auto py-2 px-3 min-h-[125px] flex items-center justify-center">
                 {currentRoom.status === 'playing' ? (
-                  sortedHand.map((card, idx) => {
-                    const playable = isLocalTurn && isValidCardPlay(card, currentRoom.currentCard, currentRoom.currentColor);
-                    return (
-                      <div
-                        key={card.id}
-                        style={{
-                          zIndex: sortedHand.length - idx,
-                          marginLeft: idx === 0 ? '0px' : undefined,
-                        }}
-                        className="relative transition-all duration-200 hover:!z-50"
-                      >
-                        <UnoCard
-                          card={card}
-                          isPlayable={playable}
-                          onClick={playable ? () => handleCardClick(card.id) : undefined}
-                          size="md"
-                        />
+                  localPlayer.rank !== undefined ? (
+                    <div className="w-full max-w-md bg-amber-500/15 border-2 border-amber-400/60 rounded-2xl p-4 text-center shadow-lg backdrop-blur-md animate-fade-in my-1">
+                      <div className="text-sm sm:text-base font-black text-amber-300 flex items-center justify-center gap-2 mb-1">
+                        <span>🎉 BẠN ĐÃ VỀ ĐÍCH HẠNG {localPlayer.rank}!</span>
                       </div>
-                    );
-                  })
+                      <p className="text-xs text-slate-300">
+                        Bạn đã đánh hết bài. Đang theo dõi các người chơi còn lại tiếp tục thi đấu... 🍿
+                      </p>
+                    </div>
+                  ) : (
+                    localPlayer.hand.map((card, idx) => {
+                      const playable = isLocalTurn && isValidCardPlay(card, currentRoom.currentCard, currentRoom.currentColor);
+                      return (
+                        <div
+                          key={card.id}
+                          style={{
+                            zIndex: localPlayer.hand.length - idx,
+                            marginLeft: idx === 0 ? '0px' : undefined,
+                          }}
+                          className="relative transition-all duration-200 hover:!z-50"
+                        >
+                          <UnoCard
+                            card={card}
+                            isPlayable={playable}
+                            onClick={playable ? () => handleCardClick(card.id) : undefined}
+                            size="md"
+                          />
+                        </div>
+                      );
+                    })
+                  )
                 ) : (
                   <div className="text-center py-4 text-xs font-bold text-slate-400">
-                    {localPlayer.isHost ? 'Nhấn "BẮT ĐẦU VÁN ĐẤU" ở giữa bàn để chia bài và chơi!' : 'Đã vào bàn chơi • Chờ chủ phòng bắt đầu chia bài...'}
+                    {localPlayer.isHost
+                      ? currentRoom.players.length >= 2
+                        ? 'Nhấn "BẮT ĐẦU VÁN ĐẤU" ở giữa bàn để chia bài và chơi!'
+                        : 'Chờ có ít nhất 2 người chơi vào bàn để bắt đầu...'
+                      : currentRoom.players.length >= 2
+                      ? 'Đã vào bàn chơi • Chờ chủ phòng bắt đầu chia bài...'
+                      : 'Chờ thêm người chơi tham gia bàn đấu...'}
                   </div>
                 )}
               </div>
@@ -699,6 +719,7 @@ export default function App() {
         isOpen={currentRoom.status === 'ended'}
         winner={currentRoom.winner}
         players={currentRoom.players}
+        rankings={currentRoom.rankings}
         isHost={localPlayer.isHost}
         onRematch={rematch}
         onLeaveRoom={leaveRoom}

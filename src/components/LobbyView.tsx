@@ -71,6 +71,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   const [turnDuration, setTurnDuration] = useState(20);
   const [enableUnoPenalty, setEnableUnoPenalty] = useState(true);
   const [stackingDrawTwo, setStackingDrawTwo] = useState(false);
+  const [drawUntilPlayable, setDrawUntilPlayable] = useState(false);
 
   // Profile edit state
   const [tempName, setTempName] = useState(playerName);
@@ -89,6 +90,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
         turnDuration,
         enableUnoPenalty,
         stackingDrawTwo,
+        drawUntilPlayable,
       },
     });
     setShowCreateModal(false);
@@ -173,7 +175,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                 <Edit3 className="w-3.5 h-3.5" />
               </button>
             </div>
-            <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5">
+            <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1.5 mt-0.5">
               <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />
               Sẵn sàng vào trận
             </span>
@@ -391,8 +393,26 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               </div>
 
               {/* Game Rules */}
-              <div className="space-y-2 pt-2 border-t border-slate-700/60">
+              <div className="space-y-2.5 pt-2 border-t border-slate-700/60">
                 <span className="text-xs font-bold text-slate-300 block">Tùy chỉnh luật chơi:</span>
+
+                <label className="flex items-start gap-2.5 cursor-pointer text-xs text-slate-300 bg-emerald-950/30 border border-emerald-500/30 p-2.5 rounded-xl hover:border-emerald-400/50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={drawUntilPlayable}
+                    onChange={e => setDrawUntilPlayable(e.target.checked)}
+                    className="mt-0.5 rounded text-emerald-500 focus:ring-0"
+                  />
+                  <div>
+                    <span className="font-bold text-emerald-400 block flex items-center gap-1">
+                      🌳 Luật Rừng (Draw Until Playable)
+                    </span>
+                    <span className="text-[11px] text-slate-400 leading-tight">
+                      Khi không có lá bài hợp lệ để đánh, người chơi phải bốc bài liên tục cho đến khi nào rút được lá bài đánh được.
+                    </span>
+                  </div>
+                </label>
+
                 <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
                   <input
                     type="checkbox"

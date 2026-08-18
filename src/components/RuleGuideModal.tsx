@@ -101,6 +101,14 @@ export const RuleGuideModal: React.FC<RuleGuideModalProps> = ({ isOpen, onClose 
               </p>
             </div>
           </div>
+
+          {/* Section 5 - House Rules */}
+          <div className="bg-emerald-950/30 p-3.5 rounded-2xl border border-emerald-500/30">
+            <h4 className="font-bold text-emerald-400 mb-1">🌳 Chế Độ Luật Rừng (Draw Until Playable)</h4>
+            <p className="text-xs text-slate-300">
+              Nếu phòng chơi kích hoạt tùy chọn <strong>Luật Rừng</strong>: Khi đến lượt mà bạn không có lá bài nào đánh được, bạn sẽ phải bốc bài liên tục từ chồng bài cho đến khi nào rút được một lá bài có thể đánh được mới thôi!
+            </p>
+          </div>
         </div>
 
         <button
