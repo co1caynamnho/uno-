@@ -201,6 +201,134 @@ async function startServer() {
     }
   }
 
+  function checkBotTurn(room: ServerRoom) {
+    if (room.status !== 'playing') return;
+    const activePlayer = room.players[room.currentTurnIndex];
+    if (!activePlayer || !activePlayer.socketId.startsWith('bot_')) return;
+
+    setTimeout(() => {
+      if (room.status !== 'playing') return;
+      const currentActive = room.players[room.currentTurnIndex];
+      if (!currentActive || currentActive.id !== activePlayer.id) return;
+
+      // Find playable cards
+      const playableCards = currentActive.hand.filter(
+        c => c.color === 'wild' || c.color === room.currentColor || c.value === room.currentCard?.value
+      );
+
+      if (playableCards.length > 0) {
+        const chosenCard = playableCards[0];
+        const cardIdx = currentActive.hand.findIndex(c => c.id === chosenCard.id);
+        currentActive.hand.splice(cardIdx, 1);
+        currentActive.cardsPlayed++;
+
+        let chosenColor: CardColor = 'red';
+        if (chosenCard.color === 'wild') {
+          const colorCounts: Record<CardColor, number> = { red: 0, yellow: 0, green: 0, blue: 0, wild: 0 };
+          currentActive.hand.forEach(c => {
+            if (c.color !== 'wild') colorCounts[c.color]++;
+          });
+          const best = (Object.entries(colorCounts) as [CardColor, number][]).sort((a, b) => b[1] - a[1])[0][0];
+          chosenColor = best && best !== 'wild' ? best : 'red';
+        }
+
+        if (currentActive.hand.length === 1) {
+          currentActive.hasCalledUno = true;
+          io.to(room.roomId).emit('uno_shout_broadcast', { playerName: currentActive.name });
+        }
+
+        const playedCard: Card = {
+          ...chosenCard,
+          selectedColor: chosenCard.color === 'wild' ? chosenColor : chosenCard.color,
+        };
+
+        room.currentCard = playedCard;
+        room.currentColor = chosenCard.color === 'wild' ? chosenColor : chosenCard.color;
+        room.discardPile.push(playedCard);
+
+        let skipTurn = false;
+        let nextIdx = getNextPlayerIndex(room, 1);
+
+        if (chosenCard.value === '+4') {
+          const nextPlayer = room.players[nextIdx];
+          drawCardsForPlayer(room, nextPlayer, 4);
+          room.lastActionAnnouncement = `${currentActive.name} đánh +4! ${nextPlayer.name} bị bốc 4 lá.`;
+          addRoomLog(room, currentActive.id, `Đánh +4 và chọn màu ${getColorNameVietnamese(chosenColor)}! ${nextPlayer.name} bị bốc 4 lá!`, 'play', chosenCard);
+          skipTurn = true;
+        } else if (chosenCard.value === '+2') {
+          const nextPlayer = room.players[nextIdx];
+          drawCardsForPlayer(room, nextPlayer, 2);
+          room.lastActionAnnouncement = `${currentActive.name} đánh +2! ${nextPlayer.name} bị bốc 2 lá.`;
+          addRoomLog(room, currentActive.id, `Đánh +2! ${nextPlayer.name} bị bốc 2 lá!`, 'play', chosenCard);
+          skipTurn = true;
+        } else if (chosenCard.value === 'SKIP') {
+          const nextPlayer = room.players[nextIdx];
+          room.lastActionAnnouncement = `${currentActive.name} đánh ⛔ SKIP! ${nextPlayer.name} bị mất lượt.`;
+          addRoomLog(room, currentActive.id, `Đánh ⛔ SKIP! ${nextPlayer.name} bị mất lượt!`, 'skip', chosenCard);
+          skipTurn = true;
+        } else if (chosenCard.value === 'REV') {
+          room.playDirection = (room.playDirection * -1) as 1 | -1;
+          room.lastActionAnnouncement = `${currentActive.name} đánh 🔄 REVERSE! Đổi chiều đánh.`;
+          addRoomLog(room, currentActive.id, `Đánh 🔄 REVERSE! Đổi chiều chơi.`, 'reverse', chosenCard);
+          if (room.players.length === 2) skipTurn = true;
+          else nextIdx = getNextPlayerIndex(room, 1);
+        } else if (chosenCard.color === 'wild') {
+          room.lastActionAnnouncement = `${currentActive.name} đánh WILD và chọn màu ${getColorNameVietnamese(chosenColor)}!`;
+          addRoomLog(room, currentActive.id, `Đánh WILD và chọn màu ${getColorNameVietnamese(chosenColor)}!`, 'color', chosenCard);
+        } else {
+          room.lastActionAnnouncement = `${currentActive.name} đánh lá ${chosenCard.value} ${getColorNameVietnamese(chosenCard.color)}`;
+          addRoomLog(room, currentActive.id, `Đánh lá ${chosenCard.value} ${getColorNameVietnamese(chosenCard.color)}`, 'play', chosenCard);
+        }
+
+        if (currentActive.hand.length === 0) {
+          room.status = 'ended';
+          room.winner = currentActive;
+          room.lastActionAnnouncement = `🎉 CHÚC MỪNG ${currentActive.name.toUpperCase()} ĐÃ CHIẾN THẮNG! 🎉`;
+          addRoomLog(room, currentActive.id, `Đã đánh hết bài và chiến thắng! 🏆`, 'win');
+        } else {
+          room.currentTurnIndex = skipTurn ? getNextPlayerIndex(room, 2) : nextIdx;
+        }
+
+        broadcastRoomUpdate(room);
+        checkBotTurn(room);
+      } else {
+        // Draw 1 card
+        drawCardsForPlayer(room, currentActive, 1);
+        const drawnCard = currentActive.hand[currentActive.hand.length - 1];
+        const isDrawnPlayable =
+          drawnCard &&
+          (drawnCard.color === 'wild' ||
+            drawnCard.color === room.currentColor ||
+            drawnCard.value === room.currentCard?.value);
+
+        if (isDrawnPlayable) {
+          currentActive.hand.pop();
+          currentActive.cardsPlayed++;
+          let chosenColor: CardColor = drawnCard.color === 'wild' ? 'red' : drawnCard.color;
+
+          const playedCard: Card = {
+            ...drawnCard,
+            selectedColor: chosenColor,
+          };
+          room.currentCard = playedCard;
+          room.currentColor = chosenColor;
+          room.discardPile.push(playedCard);
+
+          room.lastActionAnnouncement = `${currentActive.name} bốc được lá hợp lệ và đánh luôn!`;
+          addRoomLog(room, currentActive.id, `Bốc và đánh lá ${drawnCard.value}`, 'play', drawnCard);
+          room.currentTurnIndex = getNextPlayerIndex(room, 1);
+        } else {
+          room.lastActionAnnouncement = `${currentActive.name} đã bốc 1 lá bài.`;
+          addRoomLog(room, currentActive.id, `Đã rút 1 lá bài.`, 'draw');
+          room.currentTurnIndex = getNextPlayerIndex(room, 1);
+        }
+
+        broadcastRoomUpdate(room);
+        checkBotTurn(room);
+      }
+    }, 900);
+  }
+
   // Socket.IO Connection Handler
   io.on('connection', (socket: Socket) => {
     let currentRoomId: string | null = null;
@@ -351,6 +479,45 @@ async function startServer() {
       }
     });
 
+    // Add Bot
+    socket.on('add_bot', () => {
+      if (!currentRoomId) return;
+      const room = rooms.get(currentRoomId);
+      if (!room || room.status !== 'waiting') return;
+      if (room.players.length >= room.maxPlayers) {
+        socket.emit('error_message', 'Phòng đã đủ số người chơi!');
+        return;
+      }
+
+      const existingIds = new Set(room.players.map(p => p.id));
+      let newId = 0;
+      while (existingIds.has(newId)) newId++;
+
+      const botNames = ['Bot Mèo 🐱', 'Bot Gấu 🐻', 'Bot Cáo 🦊', 'Bot Robot 🤖'];
+      const botName = botNames[newId % botNames.length];
+
+      const newBot: Player & { socketId: string } = {
+        id: newId,
+        socketId: `bot_${Date.now()}_${newId}`,
+        name: botName,
+        avatar: null,
+        isReady: true,
+        isHost: false,
+        handCount: 0,
+        hand: [],
+        hasCalledUno: false,
+        isConnected: true,
+        score: 0,
+        cardsPlayed: 0,
+      };
+
+      room.players.push(newBot);
+      addRoomLog(room, newId, `${botName} đã vào phòng`, 'system');
+      room.lastActionAnnouncement = `${botName} đã vào phòng (${room.players.length}/${room.maxPlayers})`;
+      broadcastRoomUpdate(room);
+      broadcastRoomsList();
+    });
+
     // 4. Start Game (Host only)
     socket.on('start_game', () => {
       if (!currentRoomId) return;
@@ -360,16 +527,24 @@ async function startServer() {
         socket.emit('error_message', 'Chỉ chủ phòng mới có quyền bắt đầu ván đấu!');
         return;
       }
-      if (room.players.length < 2) {
-        socket.emit('error_message', 'Cần ít nhất 2 người chơi để bắt đầu!');
-        return;
-      }
 
-      // Check all non-hosts are ready
-      const allReady = room.players.every(p => p.isHost || p.isReady);
-      if (!allReady) {
-        socket.emit('error_message', 'Các người chơi khác chưa sẵn sàng!');
-        return;
+      // If only 1 player, auto add a bot to play immediately!
+      if (room.players.length < 2) {
+        const newBot: Player & { socketId: string } = {
+          id: 1,
+          socketId: `bot_${Date.now()}_1`,
+          name: 'Bot Mèo 🐱',
+          avatar: null,
+          isReady: true,
+          isHost: false,
+          handCount: 0,
+          hand: [],
+          hasCalledUno: false,
+          isConnected: true,
+          score: 0,
+          cardsPlayed: 0,
+        };
+        room.players.push(newBot);
       }
 
       // Setup initial game deck
@@ -384,6 +559,7 @@ async function startServer() {
       room.players.forEach(p => {
         p.hand = [];
         p.hasCalledUno = false;
+        p.isReady = true;
         for (let i = 0; i < 7; i++) {
           p.hand.push(room.deck.pop()!);
         }
@@ -403,6 +579,8 @@ async function startServer() {
       addRoomLog(room, room.players[0].id, `Bắt đầu ván đấu mới!`, 'system');
       broadcastRoomUpdate(room);
       broadcastRoomsList();
+
+      checkBotTurn(room);
     });
 
     // 5. Play Card
@@ -515,6 +693,7 @@ async function startServer() {
       }
 
       broadcastRoomUpdate(room);
+      checkBotTurn(room);
     });
 
     // 6. Draw Card
@@ -535,6 +714,7 @@ async function startServer() {
 
       room.currentTurnIndex = getNextPlayerIndex(room, 1);
       broadcastRoomUpdate(room);
+      checkBotTurn(room);
     });
 
     // 7. Shout UNO

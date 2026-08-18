@@ -4,7 +4,6 @@ import { useSocketGame } from './hooks/useSocketGame';
 import { sound } from './utils/audio';
 import { UnoCard } from './components/UnoCard';
 import { LobbyView } from './components/LobbyView';
-import { WaitingRoomView } from './components/WaitingRoomView';
 import { ColorPickerModal } from './components/ColorPickerModal';
 import { GameOverModal } from './components/GameOverModal';
 import { RuleGuideModal } from './components/RuleGuideModal';
@@ -27,6 +26,8 @@ import {
   ArrowUpDown,
   Send,
   AlertCircle,
+  Play,
+  Users,
 } from 'lucide-react';
 
 export default function App() {
@@ -171,42 +172,7 @@ export default function App() {
     );
   }
 
-  // If in a room that is waiting for players to start
-  if (currentRoom.status === 'waiting') {
-    return (
-      <div className="min-h-screen w-full flex flex-col items-center justify-between p-2 sm:p-4 text-white font-sans overflow-x-hidden">
-        <h1 className="m-0 font-black tracking-widest text-center mt-2 text-3xl sm:text-4xl text-white drop-shadow-md">
-          UNO
-        </h1>
-
-        {errorMessage && (
-          <div className="fixed top-4 z-50 px-4 py-2 bg-red-600/95 text-white font-bold text-xs sm:text-sm rounded-2xl shadow-xl flex items-center gap-2 animate-bounce">
-            <AlertCircle className="w-4 h-4" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        <WaitingRoomView
-          room={currentRoom}
-          localPlayer={localPlayer}
-          onToggleReady={toggleReady}
-          onStartGame={startGame}
-          onLeaveRoom={leaveRoom}
-          onSendChat={sendChat}
-          soundEnabled={soundEnabled}
-          onToggleSound={() => setSoundEnabled(!soundEnabled)}
-        />
-
-        <footer className="text-center text-[11px] text-slate-500 py-2">
-          UNO Online • Phòng chờ trận đấu
-        </footer>
-
-        <RuleGuideModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
-      </div>
-    );
-  }
-
-  // GAMEPLAY / ENDED STATE: 4-Direction Multiplayer Arena
+  // GAMEPLAY / IN-ROOM ARENA (Instant Table for Waiting, Playing, and Ended States)
   const activePlayer = currentRoom.players[currentRoom.currentTurnIndex];
   const isLocalTurn = activePlayer?.id === localPlayer.id;
 
@@ -275,7 +241,7 @@ export default function App() {
         className="flex items-center gap-4 px-4 py-1.5 rounded-full border border-white/15 bg-white/5 text-xs sm:text-sm text-[#18dcff] shadow-sm mb-2"
       >
         <span>
-          🏠 Phòng: <strong className="text-white">{currentRoom.roomName}</strong>
+          🏠 Phòng: <strong className="text-white">{currentRoom.roomName}</strong> ({currentRoom.players.length}/{currentRoom.maxPlayers} người)
         </span>
         {currentRoom.hasPassword && (
           <span className="flex items-center gap-1">
@@ -343,7 +309,7 @@ export default function App() {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-950/60 hover:bg-red-900/60 text-red-300 text-xs font-bold border border-red-800/80 transition-colors"
         >
           <LogOut className="w-3.5 h-3.5" />
-          <span>Rời Phòng</span>
+          <span>Rời Bàn</span>
         </button>
       </div>
 
@@ -363,7 +329,7 @@ export default function App() {
 
           {/* TOP OPPONENT SLOT */}
           <div id="slot-top" className="player-slot top">
-            {topOpponent && (
+            {topOpponent ? (
               <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={`player-tag ${
@@ -372,36 +338,47 @@ export default function App() {
                 >
                   {renderAvatar(topOpponent, topOpponent.id === activePlayer?.id)}
                   <span className="player-name max-w-[100px] truncate">{topOpponent.name}</span>
-                  <span className="card-count-badge">{topOpponent.handCount}</span>
+                  {currentRoom.status === 'playing' && (
+                    <span className="card-count-badge">{topOpponent.handCount}</span>
+                  )}
                   {topOpponent.isHost && (
                     <Crown className="w-3 h-3 text-amber-400 fill-current ml-1" title="Chủ phòng" />
                   )}
                 </div>
 
                 {/* Opponent Card Backs - Evenly Layered */}
-                <div className="hand-container flex items-center justify-center">
-                  {Array.from({ length: Math.min(topOpponent.handCount, 8) }).map((_, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        zIndex: 30 - idx,
-                        marginLeft: idx === 0 ? '0px' : '-20px',
-                      }}
-                    >
-                      <UnoCard isBack size="sm" />
-                    </div>
-                  ))}
-                  {topOpponent.handCount > 8 && (
-                    <span className="text-[10px] text-amber-300 font-bold ml-1">+{topOpponent.handCount - 8}</span>
-                  )}
-                </div>
+                {currentRoom.status === 'playing' && (
+                  <div className="hand-container flex items-center justify-center">
+                    {Array.from({ length: Math.min(topOpponent.handCount, 8) }).map((_, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          zIndex: 30 - idx,
+                          marginLeft: idx === 0 ? '0px' : '-20px',
+                        }}
+                      >
+                        <UnoCard isBack size="sm" />
+                      </div>
+                    ))}
+                    {topOpponent.handCount > 8 && (
+                      <span className="text-[10px] text-amber-300 font-bold ml-1">+{topOpponent.handCount - 8}</span>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
+            ) : currentRoom.status === 'waiting' ? (
+              <div className="flex flex-col items-center gap-1 opacity-40">
+                <div className="w-10 h-10 rounded-full border border-dashed border-slate-600 bg-slate-950 flex items-center justify-center text-slate-500">
+                  <User className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] text-slate-500 font-semibold">Chờ người chơi</span>
+              </div>
+            ) : null}
           </div>
 
           {/* LEFT OPPONENT SLOT */}
           <div id="slot-left" className="player-slot left">
-            {leftOpponent && (
+            {leftOpponent ? (
               <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={`player-tag ${
@@ -410,26 +387,37 @@ export default function App() {
                 >
                   {renderAvatar(leftOpponent, leftOpponent.id === activePlayer?.id)}
                   <span className="player-name max-w-[80px] truncate">{leftOpponent.name}</span>
-                  <span className="card-count-badge">{leftOpponent.handCount}</span>
+                  {currentRoom.status === 'playing' && (
+                    <span className="card-count-badge">{leftOpponent.handCount}</span>
+                  )}
                   {leftOpponent.isHost && (
                     <Crown className="w-3 h-3 text-amber-400 fill-current ml-1" title="Chủ phòng" />
                   )}
                 </div>
 
-                <div className="flex flex-col items-center -space-y-12">
-                  {Array.from({ length: Math.min(leftOpponent.handCount, 6) }).map((_, idx) => (
-                    <div key={idx} className="rotate-90">
-                      <UnoCard isBack size="sm" />
-                    </div>
-                  ))}
-                </div>
+                {currentRoom.status === 'playing' && (
+                  <div className="flex flex-col items-center -space-y-12">
+                    {Array.from({ length: Math.min(leftOpponent.handCount, 6) }).map((_, idx) => (
+                      <div key={idx} className="rotate-90">
+                        <UnoCard isBack size="sm" />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
+            ) : currentRoom.status === 'waiting' && currentRoom.maxPlayers >= 3 ? (
+              <div className="flex flex-col items-center gap-1 opacity-40">
+                <div className="w-10 h-10 rounded-full border border-dashed border-slate-600 bg-slate-950 flex items-center justify-center text-slate-500">
+                  <User className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] text-slate-500 font-semibold">Chờ người chơi</span>
+              </div>
+            ) : null}
           </div>
 
           {/* RIGHT OPPONENT SLOT */}
           <div id="slot-right" className="player-slot right">
-            {rightOpponent && (
+            {rightOpponent ? (
               <div className="flex flex-col items-center gap-1.5">
                 <div
                   className={`player-tag ${
@@ -438,72 +426,115 @@ export default function App() {
                 >
                   {renderAvatar(rightOpponent, rightOpponent.id === activePlayer?.id)}
                   <span className="player-name max-w-[80px] truncate">{rightOpponent.name}</span>
-                  <span className="card-count-badge">{rightOpponent.handCount}</span>
+                  {currentRoom.status === 'playing' && (
+                    <span className="card-count-badge">{rightOpponent.handCount}</span>
+                  )}
                   {rightOpponent.isHost && (
                     <Crown className="w-3 h-3 text-amber-400 fill-current ml-1" title="Chủ phòng" />
                   )}
                 </div>
 
-                <div className="flex flex-col items-center -space-y-12">
-                  {Array.from({ length: Math.min(rightOpponent.handCount, 6) }).map((_, idx) => (
-                    <div key={idx} className="-rotate-90">
-                      <UnoCard isBack size="sm" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* CENTER MAT: DECK + DISCARD PILE + DIRECTION */}
-          <div className="center-mat">
-            {/* DECK PILE */}
-            <div className="text-center flex flex-col items-center gap-1">
-              <div
-                id="deck-pile"
-                onClick={isLocalTurn ? drawCard : undefined}
-                className={`relative ${
-                  isLocalTurn
-                    ? 'cursor-pointer hover:scale-105 active:scale-95 transition-transform'
-                    : 'cursor-not-allowed opacity-85'
-                }`}
-                title={isLocalTurn ? 'Bấm để bốc bài' : 'Chưa đến lượt của bạn'}
-              >
-                <UnoCard isBack size="md" />
-                {isLocalTurn && (
-                  <div className="absolute -bottom-2 inset-x-0 mx-auto w-max px-2 py-0.5 bg-[#ffaf40] text-slate-950 text-[10px] font-black rounded-full shadow-md animate-pulse">
-                    Bốc bài
+                {currentRoom.status === 'playing' && (
+                  <div className="flex flex-col items-center -space-y-12">
+                    {Array.from({ length: Math.min(rightOpponent.handCount, 6) }).map((_, idx) => (
+                      <div key={idx} className="-rotate-90">
+                        <UnoCard isBack size="sm" />
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* DISCARD PILE */}
-            <div className="text-center flex flex-col items-center gap-1">
-              <div id="discard-pile">
-                <UnoCard
-                  card={currentRoom.currentCard}
-                  size="md"
-                  showChosenColorGlow={true}
-                />
+            ) : currentRoom.status === 'waiting' && currentRoom.maxPlayers >= 4 ? (
+              <div className="flex flex-col items-center gap-1 opacity-40">
+                <div className="w-10 h-10 rounded-full border border-dashed border-slate-600 bg-slate-950 flex items-center justify-center text-slate-500">
+                  <User className="w-4 h-4" />
+                </div>
+                <span className="text-[10px] text-slate-500 font-semibold">Chờ người chơi</span>
               </div>
-            </div>
+            ) : null}
+          </div>
 
-            {/* DIRECTION INDICATOR */}
-            <div className="flex flex-col items-center justify-center p-1 bg-slate-950/60 rounded-xl border border-white/10">
-              <span className="text-[9px] text-slate-400 font-bold mb-0.5">Chiều</span>
-              {currentRoom.playDirection === 1 ? (
-                <RotateCw className="w-4 h-4 text-[#32ff7e] animate-spin" style={{ animationDuration: '6s' }} />
+          {/* CENTER MAT: WAITING CONTROLS OR ACTIVE DECK PILE */}
+          {currentRoom.status === 'waiting' ? (
+            <div className="center-mat !flex-col !gap-3 max-w-xs sm:max-w-sm p-4 bg-slate-950/80 backdrop-blur-md rounded-3xl border border-white/20 shadow-2xl text-center z-20">
+              <div className="flex items-center justify-center gap-2 text-indigo-300">
+                <Users className="w-5 h-5" />
+                <span className="text-sm font-bold text-white">
+                  {currentRoom.players.length}/{currentRoom.maxPlayers} người chơi trong bàn
+                </span>
+              </div>
+
+              {localPlayer.isHost ? (
+                <div className="flex flex-col items-center gap-2 w-full">
+                  <button
+                    onClick={startGame}
+                    className="w-full group bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 px-5 py-3 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 transition-transform active:scale-95 animate-pulse"
+                  >
+                    <Play className="w-5 h-5 fill-current" />
+                    <span>BẮT ĐẦU VÁN ĐẤU</span>
+                  </button>
+                </div>
               ) : (
-                <RotateCcw className="w-4 h-4 text-[#ffaf40] animate-spin" style={{ animationDuration: '6s', animationDirection: 'reverse' }} />
+                <div className="flex flex-col items-center gap-1.5 py-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>Đã vào bàn • Chờ chủ phòng bắt đầu</span>
+                  </div>
+                </div>
               )}
             </div>
-          </div>
+          ) : (
+            <div className="center-mat">
+              {/* DECK PILE */}
+              <div className="text-center flex flex-col items-center gap-1">
+                <div
+                  id="deck-pile"
+                  onClick={isLocalTurn ? drawCard : undefined}
+                  className={`relative ${
+                    isLocalTurn
+                      ? 'cursor-pointer hover:scale-105 active:scale-95 transition-transform'
+                      : 'cursor-not-allowed opacity-85'
+                  }`}
+                  title={isLocalTurn ? 'Bấm để bốc bài' : 'Chưa đến lượt của bạn'}
+                >
+                  <UnoCard isBack size="md" />
+                  {isLocalTurn && (
+                    <div className="absolute -bottom-2 inset-x-0 mx-auto w-max px-2 py-0.5 bg-[#ffaf40] text-slate-950 text-[10px] font-black rounded-full shadow-md animate-pulse">
+                      Bốc bài
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          {/* STATUS BAR */}
-          <div id="status-bar">
-            {currentRoom.lastActionAnnouncement || `Đến lượt: ${activePlayer?.name || '...'}`}
-          </div>
+              {/* DISCARD PILE */}
+              <div className="text-center flex flex-col items-center gap-1">
+                <div id="discard-pile">
+                  <UnoCard
+                    card={currentRoom.currentCard}
+                    size="md"
+                    showChosenColorGlow={true}
+                  />
+                </div>
+              </div>
+
+              {/* DIRECTION INDICATOR */}
+              <div className="flex flex-col items-center justify-center p-1 bg-slate-950/60 rounded-xl border border-white/10">
+                <span className="text-[9px] text-slate-400 font-bold mb-0.5">Chiều</span>
+                {currentRoom.playDirection === 1 ? (
+                  <RotateCw className="w-4 h-4 text-[#32ff7e] animate-spin" style={{ animationDuration: '6s' }} />
+                ) : (
+                  <RotateCcw className="w-4 h-4 text-[#ffaf40] animate-spin" style={{ animationDuration: '6s', animationDirection: 'reverse' }} />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* STATUS BAR - Only shown during active playing state */}
+          {currentRoom.status === 'playing' && (
+            <div id="status-bar">
+              {currentRoom.lastActionAnnouncement || `Đến lượt: ${activePlayer?.name || '...'}`}
+            </div>
+          )}
 
           {/* BOTTOM PLAYER SLOT (LOCAL PLAYER) */}
           <div id="slot-bottom" className="player-slot bottom w-full max-w-2xl px-2">
@@ -517,70 +548,83 @@ export default function App() {
                 >
                   {renderAvatar(localPlayer, isLocalTurn)}
                   <span className="player-name max-w-[120px] truncate">{localPlayer.name}</span>
-                  <span className="card-count-badge">{localPlayer.hand.length} lá</span>
+                  {currentRoom.status === 'playing' && (
+                    <span className="card-count-badge">{localPlayer.hand.length} lá</span>
+                  )}
                   <span className="text-[10px] font-black bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded ml-1">
                     Bạn
                   </span>
+                  {localPlayer.isHost && (
+                    <Crown className="w-3 h-3 text-amber-400 fill-current ml-1" title="Chủ phòng" />
+                  )}
                 </div>
 
                 {/* Hand Action Controls */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      if (sortBy === 'default') setSortBy('color');
-                      else if (sortBy === 'color') setSortBy('value');
-                      else setSortBy('default');
-                    }}
-                    className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold rounded-lg border border-slate-700"
-                    title="Sắp xếp bài"
-                  >
-                    <ArrowUpDown className="w-3 h-3 text-[#ffaf40]" />
-                    <span className="hidden sm:inline">Xếp:</span>
-                    <span className="text-[#ffaf40]">
-                      {sortBy === 'default' ? 'Tự nhiên' : sortBy === 'color' ? 'Màu' : 'Số'}
-                    </span>
-                  </button>
-
-                  {/* UNO Shout Button */}
-                  {localPlayer.hand.length <= 2 && (
+                {currentRoom.status === 'playing' && (
+                  <div className="flex items-center gap-2">
                     <button
-                      id="call-uno-button"
-                      onClick={callUno}
-                      className={`flex items-center gap-1 px-3 py-1 font-black text-xs rounded-xl uppercase tracking-wider transition-all active:scale-95 shadow-md ${
-                        localPlayer.hasCalledUno
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-gradient-to-r from-[#ff3838] to-[#ffaf40] text-slate-950 animate-bounce ring-2 ring-yellow-300'
-                      }`}
+                      onClick={() => {
+                        if (sortBy === 'default') setSortBy('color');
+                        else if (sortBy === 'color') setSortBy('value');
+                        else setSortBy('default');
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold rounded-lg border border-slate-700"
+                      title="Sắp xếp bài"
                     >
-                      <Flame className="w-3.5 h-3.5 fill-current" />
-                      {localPlayer.hasCalledUno ? 'ĐÃ HÔ UNO!' : 'HÔ UNO! 🔥'}
+                      <ArrowUpDown className="w-3 h-3 text-[#ffaf40]" />
+                      <span className="hidden sm:inline">Xếp:</span>
+                      <span className="text-[#ffaf40]">
+                        {sortBy === 'default' ? 'Tự nhiên' : sortBy === 'color' ? 'Màu' : 'Số'}
+                      </span>
                     </button>
-                  )}
-                </div>
+
+                    {/* UNO Shout Button */}
+                    {localPlayer.hand.length <= 2 && (
+                      <button
+                        id="call-uno-button"
+                        onClick={callUno}
+                        className={`flex items-center gap-1 px-3 py-1 font-black text-xs rounded-xl uppercase tracking-wider transition-all active:scale-95 shadow-md ${
+                          localPlayer.hasCalledUno
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-gradient-to-r from-[#ff3838] to-[#ffaf40] text-slate-950 animate-bounce ring-2 ring-yellow-300'
+                        }`}
+                      >
+                        <Flame className="w-3.5 h-3.5 fill-current" />
+                        {localPlayer.hasCalledUno ? 'ĐÃ HÔ UNO!' : 'HÔ UNO! 🔥'}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Hand Cards - Evenly Staggered Stack like reference image */}
               <div className="hand-container w-full overflow-x-auto py-2 px-3 min-h-[125px] flex items-center justify-center">
-                {sortedHand.map((card, idx) => {
-                  const playable = isLocalTurn && isValidCardPlay(card, currentRoom.currentCard, currentRoom.currentColor);
-                  return (
-                    <div
-                      key={card.id}
-                      style={{
-                        zIndex: sortedHand.length - idx,
-                        marginLeft: idx === 0 ? '0px' : undefined,
-                      }}
-                      className="relative transition-all duration-200 hover:!z-50"
-                    >
-                      <UnoCard
-                        card={card}
-                        isPlayable={playable}
-                        onClick={playable ? () => handleCardClick(card.id) : undefined}
-                        size="md"
-                      />
-                    </div>
-                  );
-                })}
+                {currentRoom.status === 'playing' ? (
+                  sortedHand.map((card, idx) => {
+                    const playable = isLocalTurn && isValidCardPlay(card, currentRoom.currentCard, currentRoom.currentColor);
+                    return (
+                      <div
+                        key={card.id}
+                        style={{
+                          zIndex: sortedHand.length - idx,
+                          marginLeft: idx === 0 ? '0px' : undefined,
+                        }}
+                        className="relative transition-all duration-200 hover:!z-50"
+                      >
+                        <UnoCard
+                          card={card}
+                          isPlayable={playable}
+                          onClick={playable ? () => handleCardClick(card.id) : undefined}
+                          size="md"
+                        />
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-4 text-xs font-bold text-slate-400">
+                    {localPlayer.isHost ? 'Nhấn "BẮT ĐẦU VÁN ĐẤU" ở giữa bàn để chia bài và chơi!' : 'Đã vào bàn chơi • Chờ chủ phòng bắt đầu chia bài...'}
+                  </div>
+                )}
               </div>
             </div>
           </div>

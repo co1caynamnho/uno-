@@ -111,6 +111,12 @@ export function useSocketGame() {
     }
   }, [socket]);
 
+  const addBot = useCallback(() => {
+    if (socket) {
+      socket.emit('add_bot');
+    }
+  }, [socket]);
+
   const playCard = useCallback(
     (cardId: string, chosenColor?: CardColor) => {
       if (socket) {
@@ -188,6 +194,7 @@ export function useSocketGame() {
     joinRoom,
     toggleReady,
     startGame,
+    addBot,
     playCard,
     drawCard,
     callUno,
